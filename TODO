@@ -1,0 +1,19 @@
+packet-lisp.c
+=============
+* Instead of the static variable "encapsulated", use the col_set_fence()
+  function
+* Actually show the encapsulation header when present
+* Dissect locator sets in detail, highlighting individual fields in the hex
+  data
+* Implement "Map-Request for <EID>" in packet description, useful for tshark,
+  as per Jesper's patch
+* Implement "Map-Reply for <EID_prefix>" in packet description, useful for
+  tshark, as per Jesper's patch
+* Implement "Map-Register for <EID_prefix>" in packet description, useful for
+  tshark, as per Jesper's patch
+* Implement Map-Notify support
+* Implement LCAF support
+
+Other
+=====
+* Create script to download latest stable and generate patch
