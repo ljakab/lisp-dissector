@@ -218,7 +218,7 @@ dissect_lisp_locator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_mapping
  */
 
 static int
-dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
+dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, guint8 rec_cnt)
 {
     int i;
     gint offset = 0;
@@ -260,6 +260,10 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
                     (ttl == 0xFFFFFFFF) ? "Unlimited" : g_strdup_printf("%d", ttl),
                     (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
             offset += INET_ADDRLEN;
+            /* Update the INFO column if there is only one record */
+            if (rec_cnt == 1)
+                col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                        ip_to_str((guint8 *)&prefix_v4), prefix_mask);
             break;
         case AFNUM_INET6:
             tvb_get_ipv6(tvb, offset, &prefix_v6);
@@ -269,6 +273,10 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
                     (ttl == 0xFFFFFFFF) ? "Unlimited" : g_strdup_printf("%d", ttl),
                     (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
             offset += INET6_ADDRLEN;
+            /* Update the INFO column if there is only one record */
+            if (rec_cnt == 1)
+                col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                        ip6_to_str(&prefix_v6), prefix_mask);
             break;
         default:
             proto_tree_add_text(lisp_tree, tvb, 0, 2, "Unexpected AFI, cannot decode");
@@ -457,6 +465,10 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 tir = proto_tree_add_text(lisp_tree, tvb, offset, 4 + INET_ADDRLEN,
                         "Record %d: %s/%d",
                         i+1, ip_to_str((guint8 *)&prefix_v4), prefix_mask);
+                /* Update the INFO column if there is only one record */
+                if (rec_cnt == 1)
+                    col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                            ip_to_str((guint8 *)&prefix_v4), prefix_mask);
                 lisp_record_tree = proto_item_add_subtree(tir, ett_lisp_record);
                 proto_tree_add_text(lisp_record_tree, tvb, offset, 1, "Reserved bits: 0x%02X",
                         reserved);
@@ -473,6 +485,10 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 tir = proto_tree_add_text(lisp_tree, tvb, offset, 4 + INET6_ADDRLEN,
                         "Record %d: %s/%d",
                         i+1, ip6_to_str(&prefix_v6), prefix_mask);
+                /* Update the INFO column if there is only one record */
+                if (rec_cnt == 1)
+                    col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                            ip6_to_str(&prefix_v6), prefix_mask);
                 lisp_record_tree = proto_item_add_subtree(tir, ett_lisp_record);
                 proto_tree_add_text(lisp_record_tree, tvb, offset, 1, "Reserved bits: 0x%02X",
                         reserved);
@@ -503,7 +519,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         lisp_mr_tree = proto_item_add_subtree(tim, ett_lisp_mr);
 
         rep_tvb = tvb_new_subset(tvb, offset, -1, -1);
-        len = dissect_lisp_mapping(rep_tvb, pinfo, lisp_mr_tree);
+        len = dissect_lisp_mapping(rep_tvb, pinfo, lisp_mr_tree, 0);
         offset += len;
     }
 
@@ -572,7 +588,7 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
         int len = 0;
 
         rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
-        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
     }
 
@@ -658,7 +674,7 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
         int len = 0;
 
         rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
-        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
     }
 
