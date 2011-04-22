@@ -45,6 +45,7 @@
 #define LISP_MAP_REQUEST    1                                                                                                                                                                                    
 #define LISP_MAP_REPLY      2                                                                                                                                                                                    
 #define LISP_MAP_REGISTER   3                                                                                                                                                                                    
+#define LISP_MAP_NOTIFY     4
 #define LISP_ECM            8
 
 #define LISP_ECM_HEADER_LEN 4
@@ -68,7 +69,10 @@
 #define MAP_REP_RESERVED    0x03FFFF
 
 #define MAP_REG_FLAG_P      0x080000
-#define MAP_REG_RESERVED    0x07FFFF
+#define MAP_REG_RESERVED    0x07FFFE
+#define MAP_REG_FLAG_M      0x000001
+
+#define MAP_NOT_RESERVED    0x0FFFFF
 
 /* Initialize the protocol and registered fields */
 static int proto_lisp = -1;
@@ -101,10 +105,17 @@ static int hf_lisp_mrep_res = -1;
 /* Map-Register fields */
 static int hf_lisp_mreg_flags = -1;
 static int hf_lisp_mreg_flags_pmr = -1;
+static int hf_lisp_mreg_flags_wmn = -1;
 static int hf_lisp_mreg_res = -1;
 static int hf_lisp_mreg_keyid = -1;
 static int hf_lisp_mreg_authlen = -1;
 static int hf_lisp_mreg_auth = -1;
+
+/* Map-Notify fields */
+static int hf_lisp_mnot_res = -1;
+static int hf_lisp_mnot_keyid = -1;
+static int hf_lisp_mnot_authlen = -1;
+static int hf_lisp_mnot_auth = -1;
 
 /* Mapping record fields */
 static int hf_lisp_mapping_ttl = -1;
@@ -131,6 +142,7 @@ const value_string lisp_typevals[] = {
     { LISP_MAP_REQUEST,     "Map-Request" },
     { LISP_MAP_REPLY,       "Map-Reply" },
     { LISP_MAP_REGISTER,    "Map-Register" },
+    { LISP_MAP_NOTIFY,      "Map-Notify" },
     { LISP_ECM,             "Encapsulated Control Message" },
     { 0,                    NULL}
 };
@@ -603,7 +615,7 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
  *        0                   1                   2                   3
  *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |Type=3 |P|            Reserved                 | Record Count  |
+ *       |Type=3 |P|            Reserved               |M| Record Count  |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                         Nonce . . .                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -642,8 +654,11 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     /* Flags (1 bit) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_pmr, tvb, offset, 3, FALSE);
 
-    /* Reserved bits (19 bits) */
+    /* Reserved bits (18 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_res, tvb, offset, 3, FALSE);
+
+    /* Flags (1 bit) */
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_wmn, tvb, offset, 3, FALSE);
     offset += 3;
 
     /* Record count (8 bits) */
@@ -667,6 +682,89 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     /* Authentication Data */
     /* XXX: need to check is there is still enough data in buffer */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_auth, tvb, offset, authlen, FALSE);
+    offset += authlen;
+
+    for(i=0;i<rec_cnt;i++) {
+        tvbuff_t *rec_tvb;
+        int len = 0;
+
+        rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
+        offset += len;
+    }
+
+    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+}
+
+
+/*
+ *  Dissector code for Map-Notify type control packets
+ *
+ *        0                   1                   2                   3
+ *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |Type=4 |              Reserved                 | Record Count  |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                         Nonce . . .                           |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                         . . . Nonce                           |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |            Key ID             |  Authentication Data Length   |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       ~                     Authentication Data                       ~
+ *   +-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |   |                          Record  TTL                          |
+ *   |   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   R   | Locator Count | EID mask-len  | ACT |A|      Reserved         |
+ *   e   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   c   | Rsvd  |  Map-Version Number   |            EID-AFI            |
+ *   o   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   r   |                          EID-prefix                           |
+ *   d   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |  /|    Priority   |    Weight     |  M Priority   |   M Weight    |
+ *   | L +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   | o |        Unused Flags     |L|p|R|           Loc-AFI             |
+ *   | c +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |  \|                             Locator                           |
+ *   +-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
+
+static void
+dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
+{
+    int i;
+    gint offset = 0;
+    guint8 rec_cnt = 0;
+    tvbuff_t *next_tvb;
+    guint16 authlen = 0;
+
+    /* Reserved bits (20 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_res, tvb, offset, 3, FALSE);
+    offset += 3;
+
+    /* Record count (8 bits) */
+    rec_cnt = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, FALSE);
+    offset += 1;
+
+    /* Nonce (64 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    offset += 8;
+
+    /* Key ID (16 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_keyid, tvb, offset, 2, FALSE);
+    offset += 2;
+
+    /* Authentication Data Length (16 bits) */
+    authlen = tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_authlen, tvb, offset, 2, FALSE);
+    offset += 2;
+
+    /* Authentication Data */
+    /* XXX: need to check is there is still enough data in buffer */
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_auth, tvb, offset, authlen, FALSE);
     offset += authlen;
 
     for(i=0;i<rec_cnt;i++) {
@@ -771,6 +869,9 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             case LISP_MAP_REGISTER:
                 dissect_lisp_map_register(tvb, pinfo, lisp_tree);
                 break;
+            case LISP_MAP_NOTIFY:
+                dissect_lisp_map_notify(tvb, pinfo, lisp_tree);
+                break;
             case LISP_ECM:
                 encapsulated = TRUE;
                 dissect_lisp_ecm(tvb, pinfo, tree, lisp_tree);
@@ -864,6 +965,9 @@ proto_register_lisp(void)
         { &hf_lisp_mreg_flags_pmr,
             { "P bit (Proxy-Map-Reply)", "lisp.mreg.flags.pmr",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_P, NULL, HFILL }},
+        { &hf_lisp_mreg_flags_wmn,
+            { "M bit (Want-Map-Notify)", "lisp.mreg.flags.pmr",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_M, NULL, HFILL }},
         { &hf_lisp_mreg_res,
             { "Reserved bits", "lisp.mreg.res",
             FT_UINT24, BASE_HEX, NULL, MAP_REG_RESERVED, "Must be zero", HFILL }},
@@ -875,6 +979,18 @@ proto_register_lisp(void)
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mreg_auth,
             { "Authentication Data", "lisp.mreg.auth",
+            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mnot_res,
+            { "Reserved bits", "lisp.mnot.res",
+            FT_UINT24, BASE_HEX, NULL, MAP_NOT_RESERVED, "Must be zero", HFILL }},
+        { &hf_lisp_mnot_keyid,
+            { "Key ID", "lisp.mnot.keyid",
+            FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mnot_authlen,
+            { "Authentication Data Length", "lisp.mnot.authlen",
+            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mnot_auth,
+            { "Authentication Data", "lisp.mnot.auth",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mapping_ttl,
             { "TTL", "lisp.mapping.ttl",
