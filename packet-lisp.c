@@ -37,14 +37,14 @@
 #define INET_ADDRLEN        4
 #define INET6_ADDRLEN       16
 
-/* See draft-ietf-lisp-09 "Locator/ID Separation Protocol (LISP)" */
+/* See draft-ietf-lisp-11 "Locator/ID Separation Protocol (LISP)" */
 
 #define LISP_CONTROL_PORT   4342
 
 /* LISP Control Message types */
-#define LISP_MAP_REQUEST    1                                                                                                                                                                                    
-#define LISP_MAP_REPLY      2                                                                                                                                                                                    
-#define LISP_MAP_REGISTER   3                                                                                                                                                                                    
+#define LISP_MAP_REQUEST    1
+#define LISP_MAP_REPLY      2
+#define LISP_MAP_REGISTER   3
 #define LISP_MAP_NOTIFY     4
 #define LISP_ECM            8
 
@@ -291,7 +291,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
                         ip6_to_str(&prefix_v6), prefix_mask);
             break;
         default:
-            proto_tree_add_text(lisp_tree, tvb, 0, 2, "Unexpected AFI, cannot decode");
+            proto_tree_add_text(lisp_tree, tvb, 10, 2, "Unexpected AFI, cannot decode");
             next_tvb = tvb_new_subset(tvb, offset, -1, -1);
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
             return offset;
