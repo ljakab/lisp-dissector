@@ -48,6 +48,14 @@
 #define LISP_MAP_NOTIFY     4
 #define LISP_ECM            8
 
+#define LCAF_NULL           0
+#define LCAF_AFI_LIST       1
+#define LCAF_IID            2
+#define LCAF_ASN            3
+#define LCAF_APP            4
+#define LCAF_GEO            5
+#define LCAF_OKEY           6
+
 #define LISP_ECM_HEADER_LEN 4
 
 #define LISP_MAP_ACT        0xE0
@@ -146,6 +154,86 @@ const value_string lisp_typevals[] = {
     { LISP_ECM,             "Encapsulated Control Message" },
     { 0,                    NULL}
 };
+
+
+/*
+ * Dissector code for Instance ID
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |    Rsvd1      |    Flags      |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |   Type = 2    |     Rsvd2     |             4 + n             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |                         Instance ID                           |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |         Address  ...          |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
+
+static int
+dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
+{
+    guint32 iid;
+
+    /* For now, we don't print reserved and length fields */
+    offset += 3;
+
+    iid = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_text(tree, tvb, offset, 4, "Instance ID: %d", iid);
+    offset += 4;
+    return offset;
+}
+
+
+/*
+ * Dissector code for LISP Canonical Address Format (LCAF)
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |    Rsvd1     |     Flags      |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |    Type       |     Rsvd2     |            Length             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *  Type 0:  Null Body Type
+ *  Type 1:  AFI List Type
+ *  Type 2:  Instance ID Type
+ *  Type 3:  AS Number Type
+ *  Type 4:  Application Data Type
+ *  Type 5:  Geo Coordinates Type
+ *  Type 6:  Opaque Key Type
+ */
+
+static int
+dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
+{
+    guint8 lcaf_type;
+
+    /* For now, we don't print reserved and flag fields */
+    offset += 2;
+
+    lcaf_type = tvb_get_guint8(tvb, offset); offset += 1;
+
+    switch (lcaf_type) {
+        case LCAF_IID:
+            offset = dissect_lcaf_iid(tvb, tree, offset);
+            break;
+        default:
+            if (lcaf_type < 7)
+                proto_tree_add_text(tree, tvb, offset - 2, 1,
+                        "LCAF type %d not supported yet", lcaf_type);
+            else
+                proto_tree_add_text(tree, tvb, offset - 2, 1,
+                        "LCAF type %d is not defined", lcaf_type);
+            return -1;
+    }
+    return offset;
+}
+
 
 /*
  * Dissector code for locator records within control packets
@@ -257,11 +345,13 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     prefix_mask   = tvb_get_guint8(tvb, offset); offset += 1;
     flags         = tvb_get_guint8(tvb, offset); offset += 2;
     mapver_offset = offset;                      offset += 2;
-    prefix_afi    = tvb_get_ntohs(tvb, offset);  offset += 2;
 
     act = flags & LISP_MAP_ACT;
     act >>= 5;
     if (act > 3) act = 4;
+
+    lcaf_reentry_mapping:
+    prefix_afi    = tvb_get_ntohs(tvb, offset);  offset += 2;
 
     switch (prefix_afi) {
         case AFNUM_INET:
@@ -289,6 +379,15 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
             if (rec_cnt == 1)
                 col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
                         ip6_to_str(&prefix_v6), prefix_mask);
+            break;
+        case AFNUM_LCAF:
+            offset = dissect_lcaf(tvb, lisp_tree, offset);
+            if (offset == -1) {
+                next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+                call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+                return offset;
+            }
+            goto lcaf_reentry_mapping;
             break;
         default:
             proto_tree_add_text(lisp_tree, tvb, 10, 2, "Unexpected AFI, cannot decode");
@@ -389,6 +488,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     offset += 8;
 
     /* Source EID AFI (16 bits) */
+    lcaf_reentry_seid:
     src_eid_afi = tvb_get_ntohs(tvb, offset);
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_srceid_afi, tvb, offset, 2, FALSE);
     offset += 2;
@@ -408,6 +508,15 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
             proto_tree_add_ipv6(lisp_tree,
                     hf_lisp_mreq_srceidv6, tvb, offset, INET6_ADDRLEN, (guint8 *)&e_in6_addr);
             offset += INET6_ADDRLEN;
+            break;
+        case AFNUM_LCAF:
+            offset = dissect_lcaf(tvb, lisp_tree, offset);
+            if (offset == -1) {
+                next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+                call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+                return;
+            }
+            goto lcaf_reentry_seid;
             break;
         default:
             proto_tree_add_text(lisp_tree, tvb, offset, 0,
@@ -469,6 +578,8 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 
         reserved = tvb_get_guint8(tvb, offset);
         prefix_mask = tvb_get_guint8(tvb, offset + 1);
+
+        lcaf_reentry_eid:
         prefix_afi = tvb_get_ntohs(tvb, offset + 2);
 
         switch (prefix_afi) {
@@ -512,8 +623,18 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                         ip6_to_str(&prefix_v6));
                 offset += 4 + INET6_ADDRLEN;
                 break;
+            case AFNUM_LCAF:
+                offset = dissect_lcaf(tvb, lisp_tree, offset + 4);
+                if (offset == -1) {
+                    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+                    call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+                    return;
+                }
+                offset -= 2;
+                goto lcaf_reentry_eid;
+                break;
             default:
-                proto_tree_add_text(lisp_tree, tvb, offset, 2, "Unexpected AFI, cannot decode");
+                proto_tree_add_text(lisp_tree, tvb, offset + 2, 2, "Unexpected AFI, cannot decode");
                 next_tvb = tvb_new_subset(tvb, offset, -1, -1);
                 call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
                 return;
