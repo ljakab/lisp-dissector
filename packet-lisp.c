@@ -2,7 +2,7 @@
  * Routines for LISP Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
  *
- * $Id$
+ * $Id: packet-lisp.c 36941 2011-04-28 18:18:30Z wmeier $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -27,8 +27,6 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
-#include <glib.h>
 
 #include <epan/packet.h>
 #include <epan/afn.h>
@@ -82,7 +80,6 @@ static int hf_lisp_records = -1;
 static int hf_lisp_nonce = -1;
 
 /* Map-Request fields */
-static int hf_lisp_mreq_flags = -1;
 static int hf_lisp_mreq_flags_auth = -1;
 static int hf_lisp_mreq_flags_mrp = -1;
 static int hf_lisp_mreq_flags_probe = -1;
@@ -118,7 +115,6 @@ static int hf_lisp_mnot_authlen = -1;
 static int hf_lisp_mnot_auth = -1;
 
 /* Mapping record fields */
-static int hf_lisp_mapping_ttl = -1;
 static int hf_lisp_mapping_res = -1;
 static int hf_lisp_mapping_ver = -1;
 
@@ -306,7 +302,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ver, tvb, mapver_offset, 2, FALSE);
 
     /* Locators */
-    for(i=0;i<loc_cnt;i++) {
+    for(i=0; i < loc_cnt; i++) {
         tvbuff_t *loc_tvb;
         int len = 0;
 
@@ -319,7 +315,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
 }
 
 
-/* 
+/*
  * Dissector code for Map-Request type control packets
  *
  *        0                   1                   2                   3
@@ -418,7 +414,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     }
 
     /* ITR records */
-    for(i=0;i<itr_rec_cnt+1;i++) {
+    for(i=0; i < itr_rec_cnt+1; i++) {
         guint16 itr_afi;
         guint32 itr_rloc_v4;
         struct e_in6_addr itr_rloc_v6;
@@ -458,7 +454,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     }
 
     /* Query records */
-    for(i=0;i<rec_cnt;i++) {
+    for(i=0; i < rec_cnt; i++) {
         guint8 reserved;
         guint8 prefix_mask;
         guint16 prefix_afi;
@@ -540,7 +536,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 }
 
 
-/* 
+/*
  * Dissector code for Map-Reply type control packets
  *
  *        0                   1                   2                   3
@@ -595,7 +591,7 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     offset += 8;
 
     /* Reply records */
-    for(i=0;i<rec_cnt;i++) {
+    for(i=0; i < rec_cnt; i++) {
         tvbuff_t *rec_tvb;
         int len = 0;
 
@@ -684,7 +680,7 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_auth, tvb, offset, authlen, FALSE);
     offset += authlen;
 
-    for(i=0;i<rec_cnt;i++) {
+    for(i=0; i < rec_cnt; i++) {
         tvbuff_t *rec_tvb;
         int len = 0;
 
@@ -767,7 +763,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
     proto_tree_add_item(lisp_tree, hf_lisp_mnot_auth, tvb, offset, authlen, FALSE);
     offset += authlen;
 
-    for(i=0;i<rec_cnt;i++) {
+    for(i=0; i < rec_cnt; i++) {
         tvbuff_t *rec_tvb;
         int len = 0;
 
@@ -781,7 +777,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
 }
 
 
-/* 
+/*
  * Dissector code for Encapsulated Control Message type packets
  *
  *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -820,7 +816,7 @@ dissect_lisp_ecm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree
 }
 
 
-/* 
+/*
  * Main dissector code
  */
 
@@ -829,8 +825,7 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
     guint8 type;
 
-    proto_item *ti;
-    proto_tree *lisp_tree;
+    proto_tree *lisp_tree = NULL;
 
     /* Clear Info column before fetching data in case an exception is thrown */
     col_clear(pinfo->cinfo, COL_INFO);
@@ -849,6 +844,7 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     if (tree) {
+        proto_item *ti;
 
         /* create display subtree for the protocol */
         ti = proto_tree_add_item(tree, proto_lisp, tvb, 0,
@@ -858,28 +854,31 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         proto_tree_add_item(lisp_tree,
             hf_lisp_type, tvb, 0, 3, FALSE);
+    }
 
-        switch (type) {
-            case LISP_MAP_REQUEST:
-                dissect_lisp_map_request(tvb, pinfo, lisp_tree);
-                break;
-            case LISP_MAP_REPLY:
-                dissect_lisp_map_reply(tvb, pinfo, lisp_tree);
-                break;
-            case LISP_MAP_REGISTER:
-                dissect_lisp_map_register(tvb, pinfo, lisp_tree);
-                break;
-            case LISP_MAP_NOTIFY:
-                dissect_lisp_map_notify(tvb, pinfo, lisp_tree);
-                break;
-            case LISP_ECM:
-                encapsulated = TRUE;
-                dissect_lisp_ecm(tvb, pinfo, tree, lisp_tree);
-                break;
-            default:
-                call_dissector(data_handle, tvb, pinfo, tree);
-                break;
-        }
+    /* Sub-dissectors are indirectly called by the following and thus
+       this code should be executed whether or not tree==NULL.
+    */
+    switch (type) {
+    case LISP_MAP_REQUEST:
+        dissect_lisp_map_request(tvb, pinfo, lisp_tree);
+        break;
+    case LISP_MAP_REPLY:
+        dissect_lisp_map_reply(tvb, pinfo, lisp_tree);
+        break;
+    case LISP_MAP_REGISTER:
+        dissect_lisp_map_register(tvb, pinfo, lisp_tree);
+        break;
+    case LISP_MAP_NOTIFY:
+        dissect_lisp_map_notify(tvb, pinfo, lisp_tree);
+        break;
+    case LISP_ECM:
+        encapsulated = TRUE;
+        dissect_lisp_ecm(tvb, pinfo, tree, lisp_tree);
+        break;
+    default:
+        call_dissector(data_handle, tvb, pinfo, tree);
+        break;
     }
 
     /* Return the amount of data this dissector was able to dissect */
@@ -908,9 +907,6 @@ proto_register_lisp(void)
         { &hf_lisp_nonce,
             { "Nonce", "lisp.nonce",
             FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-        { &hf_lisp_mreq_flags,
-            { "Flags", "lisp.mreq.flags",
-            FT_UINT16, BASE_HEX, NULL, 0x0FC0, NULL, HFILL }},
         { &hf_lisp_mreq_flags_auth,
             { "A bit (Authoritative)", "lisp.mreq.flags.auth",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REQ_FLAG_A, NULL, HFILL }},
@@ -992,9 +988,6 @@ proto_register_lisp(void)
         { &hf_lisp_mnot_auth,
             { "Authentication Data", "lisp.mnot.auth",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-        { &hf_lisp_mapping_ttl,
-            { "TTL", "lisp.mapping.ttl",
-            FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mapping_res,
             { "Reserved", "lisp.mapping.res",
             FT_UINT16, BASE_HEX, NULL, 0xF000, NULL, HFILL }},
@@ -1025,7 +1018,7 @@ proto_register_lisp(void)
 }
 
 
-/* 
+/*
  * Simple form of proto_reg_handoff_lisp which can be used if there are
  * no prefs-dependent registration function calls.
  */
@@ -1035,8 +1028,7 @@ proto_reg_handoff_lisp(void)
 {
     dissector_handle_t lisp_handle;
 
-    lisp_handle = new_create_dissector_handle(dissect_lisp,
-                             proto_lisp);
+    lisp_handle = new_create_dissector_handle(dissect_lisp, proto_lisp);
     dissector_add_uint("udp.port", LISP_CONTROL_PORT, lisp_handle);
     ipv4_handle = find_dissector("ip");
     ipv6_handle = find_dissector("ipv6");
