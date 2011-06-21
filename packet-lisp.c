@@ -580,12 +580,19 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
     int i;
     gint offset = 0;
+    gboolean probe = FALSE;
+    guint8 flags;
     guint8 rec_cnt = 0;
     tvbuff_t *next_tvb;
 
     /* Flags (2 bits) */
+    flags = tvb_get_guint8(tvb, offset);
+    probe = flags & (MAP_REQ_FLAG_P >> 16);
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_probe, tvb, offset, 3, FALSE);
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_enlr, tvb, offset, 3, FALSE);
+
+    if (probe)
+        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC Probe Reply)");
 
     /* Reserved bits (18 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_res, tvb, offset, 3, FALSE);
