@@ -349,10 +349,12 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 {
     int i;
     gint offset = 0;
+    guint16 flags;
     gboolean mrep = FALSE;
     gboolean smr = FALSE;
     gboolean probe = FALSE;
-    guint8 flags;
+    gboolean pitr = FALSE;
+    gboolean smr_invoked = FALSE;
     guint8 itr_rec_cnt = 0;
     guint8 rec_cnt = 0;
     guint16 src_eid_afi;
@@ -360,10 +362,13 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     tvbuff_t *next_tvb;
 
     /* Flags (6 bits)*/
-    flags = tvb_get_guint8(tvb, offset);
-    mrep = flags & (MAP_REQ_FLAG_M >> 16);
-    smr = flags & (MAP_REQ_FLAG_S >> 16);
-    probe = flags & (MAP_REQ_FLAG_P >> 16);
+    flags       = tvb_get_ntohs(tvb, offset);
+    mrep        = flags & (MAP_REQ_FLAG_M >> 8);
+    smr         = flags & (MAP_REQ_FLAG_S >> 8);
+    probe       = flags & (MAP_REQ_FLAG_P >> 8);
+    pitr        = flags & (MAP_REQ_FLAG_p >> 8);
+    smr_invoked = flags & (MAP_REQ_FLAG_s >> 8);
+
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_auth, tvb, offset, 3, FALSE);
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_mrp, tvb, offset, 3, FALSE);
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_probe, tvb, offset, 3, FALSE);
@@ -371,11 +376,17 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_pitr, tvb, offset, 3, FALSE);
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_smri, tvb, offset, 3, FALSE);
 
+    if (pitr)
+        col_append_fstr(pinfo->cinfo, COL_INFO, " by P-ITR");
+
     if (smr)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR)");
 
     if (probe)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC Probe)");
+
+    if (smr_invoked)
+        col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR-invoked)");
 
     /* Reserved bits (9 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_res, tvb, offset, 3, FALSE);
