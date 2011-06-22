@@ -383,7 +383,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR)");
 
     if (probe)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC Probe)");
+        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC-probe)");
 
     if (smr_invoked)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR-invoked)");
@@ -598,12 +598,12 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 
     /* Flags (2 bits) */
     flags = tvb_get_guint8(tvb, offset);
-    probe = flags & (MAP_REQ_FLAG_P >> 16);
+    probe = flags & (MAP_REP_FLAG_P >> 16);
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_probe, tvb, offset, 3, FALSE);
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_enlr, tvb, offset, 3, FALSE);
 
     if (probe)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC Probe Reply)");
+        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC-probe reply)");
 
     /* Reserved bits (18 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_res, tvb, offset, 3, FALSE);
