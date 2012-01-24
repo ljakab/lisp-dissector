@@ -44,7 +44,21 @@
 #define LISP_MAP_REPLY      2
 #define LISP_MAP_REGISTER   3
 #define LISP_MAP_NOTIFY     4
+#define LISP_INFO_REQUEST   7
 #define LISP_ECM            8
+
+#define LCAF_NULL           0
+#define LCAF_AFI_LIST       1
+#define LCAF_IID            2
+#define LCAF_ASN            3
+#define LCAF_APP_DATA       4
+#define LCAF_GEO            5
+#define LCAF_OKEY           6
+#define LCAF_NATT           7
+#define LCAF_NONCE_LOC      8
+#define LCAF_MCAST_INFO     9
+#define LCAF_EXPL_LOC_PATH  10
+#define LCAF_SEC_KEY        11
 
 #define LISP_ECM_HEADER_LEN 4
 
@@ -72,12 +86,17 @@
 
 #define MAP_NOT_RESERVED    0x0FFFFF
 
+#define INFO_REQ_RESERVED   0x0FFFFFFF
+
 /* Initialize the protocol and registered fields */
 static int proto_lisp = -1;
 static int hf_lisp_type = -1;
 static int hf_lisp_irc = -1;
 static int hf_lisp_records = -1;
 static int hf_lisp_nonce = -1;
+static int hf_lisp_keyid = -1;
+static int hf_lisp_authlen = -1;
+static int hf_lisp_auth = -1;
 
 /* Map-Request fields */
 static int hf_lisp_mreq_flags_auth = -1;
@@ -104,19 +123,25 @@ static int hf_lisp_mreg_flags = -1;
 static int hf_lisp_mreg_flags_pmr = -1;
 static int hf_lisp_mreg_flags_wmn = -1;
 static int hf_lisp_mreg_res = -1;
-static int hf_lisp_mreg_keyid = -1;
-static int hf_lisp_mreg_authlen = -1;
-static int hf_lisp_mreg_auth = -1;
 
 /* Map-Notify fields */
 static int hf_lisp_mnot_res = -1;
-static int hf_lisp_mnot_keyid = -1;
-static int hf_lisp_mnot_authlen = -1;
-static int hf_lisp_mnot_auth = -1;
+
+/* Info-Request fields */
+static int hf_lisp_ireq_res1 = -1;
+static int hf_lisp_ireq_ttl = -1;
+static int hf_lisp_ireq_res2 = -1;
 
 /* Mapping record fields */
 static int hf_lisp_mapping_res = -1;
 static int hf_lisp_mapping_ver = -1;
+
+/* LCAF fields */
+static int hf_lisp_lcaf_res1 = -1;
+static int hf_lisp_lcaf_flags = -1;
+static int hf_lisp_lcaf_type = -1;
+static int hf_lisp_lcaf_res2 = -1;
+static int hf_lisp_lcaf_length = -1;
 
 /* Encapsulated Control Message fields */
 static int hf_lisp_ecm_res = -1;
@@ -139,9 +164,104 @@ const value_string lisp_typevals[] = {
     { LISP_MAP_REPLY,       "Map-Reply" },
     { LISP_MAP_REGISTER,    "Map-Register" },
     { LISP_MAP_NOTIFY,      "Map-Notify" },
+    { LISP_INFO_REQUEST,    "Info-Request" },
     { LISP_ECM,             "Encapsulated Control Message" },
     { 0,                    NULL}
 };
+
+
+/*
+ * Dissector code for Instance ID
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |    Rsvd1      |    Flags      |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |   Type = 2    |     Rsvd2     |             4 + n             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |                         Instance ID                           |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |         Address  ...          |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
+
+static int
+dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
+{
+    guint32 iid;
+
+    /* For now, we don't print reserved and length fields */
+    offset += 3;
+
+    iid = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_text(tree, tvb, offset, 4, "Instance ID: %d", iid);
+    offset += 4;
+    return offset;
+}
+
+
+/*
+ * Dissector code for LISP Canonical Address Format (LCAF)
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |    Rsvd1     |     Flags      |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |    Type       |     Rsvd2     |            Length             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *  Type 0:  Null Body Type
+ *  Type 1:  AFI List Type
+ *  Type 2:  Instance ID Type
+ *  Type 3:  AS Number Type
+ *  Type 4:  Application Data Type
+ *  Type 5:  Geo Coordinates Type
+ *  Type 6:  Opaque Key Type
+ *  Type 7:  NAT-Traversal Type
+ *  Type 8:  Nonce Locator Type
+ *  Type 9:  Multicast Info Type
+ *  Type 10: Explicit Locator Path Type
+ *  Type 11: Security Key Type
+ *  
+ */
+
+static int
+dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
+{
+    guint8 lcaf_type;
+
+    /* We should print here the AFI in numeric form */
+    offset += 2;
+
+    /* For now, we don't print reserved and flag fields */
+    offset += 2;
+
+    lcaf_type = tvb_get_guint8(tvb, offset); offset += 1;
+
+    switch (lcaf_type) {
+        case LCAF_NULL:
+            proto_tree_add_text(tree, tvb, offset - 1, 1,
+                    "LCAF Null Body Type");
+            offset += 3;
+            break;
+        case LCAF_IID:
+            offset = dissect_lcaf_iid(tvb, tree, offset);
+            break;
+        default:
+            if (lcaf_type < 12)
+                proto_tree_add_text(tree, tvb, offset - 2, 1,
+                        "LCAF type %d not supported yet", lcaf_type);
+            else
+                proto_tree_add_text(tree, tvb, offset - 2, 1,
+                        "LCAF type %d is not defined", lcaf_type);
+            return -1;
+    }
+    return offset;
+}
+
 
 /*
  * Dissector code for locator records within control packets
@@ -530,7 +650,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 offset += 4 + INET6_ADDRLEN;
                 break;
             default:
-                proto_tree_add_text(lisp_tree, tvb, offset, 2, "Unexpected AFI, cannot decode");
+                proto_tree_add_text(lisp_tree, tvb, offset + 2, 2, "Unexpected AFI, cannot decode");
                 next_tvb = tvb_new_subset(tvb, offset, -1, -1);
                 call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
                 return;
@@ -695,17 +815,17 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     offset += 8;
 
     /* Key ID (16 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_keyid, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, FALSE);
     offset += 2;
 
     /* Authentication Data Length (16 bits) */
     authlen = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_authlen, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, FALSE);
     offset += 2;
 
     /* Authentication Data */
     /* XXX: need to check is there is still enough data in buffer */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_auth, tvb, offset, authlen, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, FALSE);
     offset += authlen;
 
     for(i=0; i < rec_cnt; i++) {
@@ -778,17 +898,17 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
     offset += 8;
 
     /* Key ID (16 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mnot_keyid, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, FALSE);
     offset += 2;
 
     /* Authentication Data Length (16 bits) */
     authlen = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_mnot_authlen, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, FALSE);
     offset += 2;
 
     /* Authentication Data */
     /* XXX: need to check is there is still enough data in buffer */
-    proto_tree_add_item(lisp_tree, hf_lisp_mnot_auth, tvb, offset, authlen, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, FALSE);
     offset += authlen;
 
     for(i=0; i < rec_cnt; i++) {
@@ -798,6 +918,119 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
         rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
         len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
+    }
+
+    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+}
+
+
+/*
+ *  Dissector code for Info-Request type control packets
+ *
+ *        0                   1                   2                   3
+ *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |Type=7 |              Reserved                                 |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                         Nonce . . .                           |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                      . . . Nonce                              |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |              Key ID           |  Authentication Data Length   |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       ~                     Authentication Data                       ~
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                              TTL                              |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |   Reserved    | EID mask-len  |        EID-prefix-AFI         |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                          EID-prefix                           |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |           AFI = 16387         |    Rsvd1      |     Flags     |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |    Type = 0     |     Rsvd2   |             4 + n             |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
+
+static void
+dissect_lisp_info_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
+{
+    gint offset = 0;
+    tvbuff_t *next_tvb;
+    guint16 authlen = 0;
+    guint8 prefix_mask;
+    guint16 prefix_afi, afi;
+    guint32 prefix_v4;
+    struct e_in6_addr prefix_v6;
+
+    /* Reserved bits (28 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_ireq_res1, tvb, offset, 4, FALSE);
+    offset += 4;
+
+    /* Nonce (64 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    offset += 8;
+
+    /* Key ID (16 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, FALSE);
+    offset += 2;
+
+    /* Authentication Data Length (16 bits) */
+    authlen = tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, FALSE);
+    offset += 2;
+
+    /* Authentication Data */
+    /* XXX: need to check is there is still enough data in buffer */
+    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, FALSE);
+    offset += authlen;
+
+    /* TTL */
+    proto_tree_add_item(lisp_tree, hf_lisp_ireq_ttl, tvb, offset, 4, FALSE);
+    offset += 4;
+
+    /* Reserved bits (8 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_ireq_res2, tvb, offset, 1, FALSE);
+    offset += 1;
+
+    prefix_mask = tvb_get_guint8(tvb, offset); offset += 1;
+    prefix_afi  = tvb_get_ntohs(tvb, offset);  offset += 2;
+
+    switch (prefix_afi) {
+        case AFNUM_INET:
+            prefix_v4 = tvb_get_ipv4(tvb, offset);
+            proto_tree_add_text(lisp_tree, tvb, offset - 3, 3 + INET_ADDRLEN,
+                    "EID prefix: %s/%d", ip_to_str((guint8 *)&prefix_v4), prefix_mask);
+            offset += INET_ADDRLEN;
+            /* Update the INFO column */
+            col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                    ip_to_str((guint8 *)&prefix_v4), prefix_mask);
+            break;
+        case AFNUM_INET6:
+            tvb_get_ipv6(tvb, offset, &prefix_v6);
+            proto_tree_add_text(lisp_tree, tvb, offset - 3, 3 + INET6_ADDRLEN,
+                    "EID prefix: %s/%d", ip6_to_str(&prefix_v6), prefix_mask);
+            offset += INET6_ADDRLEN;
+            /* Update the INFO column */
+            col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                    ip6_to_str(&prefix_v6), prefix_mask);
+            break;
+        default:
+            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2, "Unexpected AFI, cannot decode");
+            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+            call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+            return;
+    }
+
+    afi  = tvb_get_ntohs(tvb, offset);
+
+    if (afi == AFNUM_LCAF) {
+        offset = dissect_lcaf(tvb, lisp_tree, offset);
+    } else {
+        proto_tree_add_text(lisp_tree, tvb, offset, 2,
+                "Expecting LCAF AFI (%d), found %d, cannot decode", AFNUM_LCAF, afi);
     }
 
     next_tvb = tvb_new_subset(tvb, offset, -1, -1);
@@ -900,6 +1133,9 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     case LISP_MAP_NOTIFY:
         dissect_lisp_map_notify(tvb, pinfo, lisp_tree);
         break;
+    case LISP_INFO_REQUEST:
+        dissect_lisp_info_request(tvb, pinfo, lisp_tree);
+        break;
     case LISP_ECM:
         encapsulated = TRUE;
         dissect_lisp_ecm(tvb, pinfo, tree, lisp_tree);
@@ -995,27 +1231,27 @@ proto_register_lisp(void)
         { &hf_lisp_mreg_res,
             { "Reserved bits", "lisp.mreg.res",
             FT_UINT24, BASE_HEX, NULL, MAP_REG_RESERVED, "Must be zero", HFILL }},
-        { &hf_lisp_mreg_keyid,
-            { "Key ID", "lisp.mreg.keyid",
+        { &hf_lisp_keyid,
+            { "Key ID", "lisp.keyid",
             FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-        { &hf_lisp_mreg_authlen,
-            { "Authentication Data Length", "lisp.mreg.authlen",
+        { &hf_lisp_authlen,
+            { "Authentication Data Length", "lisp.authlen",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-        { &hf_lisp_mreg_auth,
-            { "Authentication Data", "lisp.mreg.auth",
+        { &hf_lisp_auth,
+            { "Authentication Data", "lisp.auth",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mnot_res,
             { "Reserved bits", "lisp.mnot.res",
             FT_UINT24, BASE_HEX, NULL, MAP_NOT_RESERVED, "Must be zero", HFILL }},
-        { &hf_lisp_mnot_keyid,
-            { "Key ID", "lisp.mnot.keyid",
-            FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-        { &hf_lisp_mnot_authlen,
-            { "Authentication Data Length", "lisp.mnot.authlen",
-            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-        { &hf_lisp_mnot_auth,
-            { "Authentication Data", "lisp.mnot.auth",
-            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_ireq_res1,
+            { "Reserved bits", "lisp.ireq.res1",
+            FT_UINT32, BASE_HEX, NULL, INFO_REQ_RESERVED, "Must be zero", HFILL }},
+        { &hf_lisp_ireq_ttl,
+            { "TTL", "lisp.ireq.ttl",
+            FT_UINT32, BASE_DEC, NULL, 0x0, "RTR information time-to-live", HFILL }},
+        { &hf_lisp_ireq_res2,
+            { "Reserved bits", "lisp.ireq.res2",
+            FT_UINT8, BASE_HEX, NULL, 0xFF, "Must be zero", HFILL }},
         { &hf_lisp_mapping_res,
             { "Reserved", "lisp.mapping.res",
             FT_UINT16, BASE_HEX, NULL, 0xF000, NULL, HFILL }},
