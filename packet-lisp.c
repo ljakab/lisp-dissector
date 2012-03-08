@@ -44,7 +44,7 @@
 #define LISP_MAP_REPLY      2
 #define LISP_MAP_REGISTER   3
 #define LISP_MAP_NOTIFY     4
-#define LISP_INFO_REQUEST   7
+#define LISP_INFO           7
 #define LISP_ECM            8
 
 #define LCAF_NULL           0
@@ -86,7 +86,7 @@
 
 #define MAP_NOT_RESERVED    0x0FFFFF
 
-#define INFO_REQ_RESERVED   0x0FFFFFFF
+#define INFO_RESERVED       0x0FFFFFFF
 
 /* Initialize the protocol and registered fields */
 static int proto_lisp = -1;
@@ -128,9 +128,9 @@ static int hf_lisp_mreg_res = -1;
 static int hf_lisp_mnot_res = -1;
 
 /* Info-Request fields */
-static int hf_lisp_ireq_res1 = -1;
-static int hf_lisp_ireq_ttl = -1;
-static int hf_lisp_ireq_res2 = -1;
+static int hf_lisp_info_res1 = -1;
+static int hf_lisp_info_ttl = -1;
+static int hf_lisp_info_res2 = -1;
 
 /* Mapping record fields */
 static int hf_lisp_mapping_res = -1;
@@ -164,7 +164,7 @@ const value_string lisp_typevals[] = {
     { LISP_MAP_REPLY,       "Map-Reply" },
     { LISP_MAP_REGISTER,    "Map-Register" },
     { LISP_MAP_NOTIFY,      "Map-Notify" },
-    { LISP_INFO_REQUEST,    "Info-Request" },
+    { LISP_INFO,            "Info" },
     { LISP_ECM,             "Encapsulated Control Message" },
     { 0,                    NULL}
 };
@@ -198,6 +198,38 @@ dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
     iid = tvb_get_ntohl(tvb, offset);
     proto_tree_add_text(tree, tvb, offset, 4, "Instance ID: %d", iid);
     offset += 4;
+    return offset;
+}
+
+
+/*
+ * Dissector code for NAT-Traversal
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |    Rsvd1      |     Flags     |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |    Type = 7     |     Rsvd2   |             4 + n             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |        MS UDP Port Number     |      ETR UDP Port Number      |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          | Global ETR RLOC Address  ...  |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |       MS RLOC Address  ...    |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          | Private ETR RLOC Address ...  |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |      RTR RLOC Address 1 ...   |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |       RTR RLOC Address n ...  |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
+
+static int
+dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset)
+{
     return offset;
 }
 
@@ -249,6 +281,9 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
             break;
         case LCAF_IID:
             offset = dissect_lcaf_iid(tvb, tree, offset);
+            break;
+        case LCAF_NATT:
+            offset = dissect_lcaf_natt(tvb, tree, offset);
             break;
         default:
             if (lcaf_type < 12)
@@ -931,7 +966,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
  *        0                   1                   2                   3
  *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |Type=7 |              Reserved                                 |
+ *       |Type=7 |R|            Reserved                                 |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                         Nonce . . .                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -947,15 +982,14 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                          EID-prefix                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |           AFI = 16387         |    Rsvd1      |     Flags     |
- *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |    Type = 0     |     Rsvd2   |             4 + n             |
+ *       |             AFI = 0           |   <Nothing Follows AFI=0>     |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *
+ *  Dissector code for Info-Reply type control packets
  */
 
 static void
-dissect_lisp_info_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
+dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
     gint offset = 0;
     tvbuff_t *next_tvb;
@@ -966,7 +1000,7 @@ dissect_lisp_info_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     struct e_in6_addr prefix_v6;
 
     /* Reserved bits (28 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_ireq_res1, tvb, offset, 4, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_res1, tvb, offset, 4, FALSE);
     offset += 4;
 
     /* Nonce (64 bits) */
@@ -988,11 +1022,11 @@ dissect_lisp_info_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     offset += authlen;
 
     /* TTL */
-    proto_tree_add_item(lisp_tree, hf_lisp_ireq_ttl, tvb, offset, 4, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_ttl, tvb, offset, 4, FALSE);
     offset += 4;
 
     /* Reserved bits (8 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_ireq_res2, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_res2, tvb, offset, 1, FALSE);
     offset += 1;
 
     prefix_mask = tvb_get_guint8(tvb, offset); offset += 1;
@@ -1024,13 +1058,11 @@ dissect_lisp_info_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
             return;
     }
 
-    afi  = tvb_get_ntohs(tvb, offset);
+    afi  = tvb_get_ntohs(tvb, offset); offset += 2;
 
-    if (afi == AFNUM_LCAF) {
-        offset = dissect_lcaf(tvb, lisp_tree, offset);
-    } else {
+    if (afi != 0) {
         proto_tree_add_text(lisp_tree, tvb, offset, 2,
-                "Expecting LCAF AFI (%d), found %d, cannot decode", AFNUM_LCAF, afi);
+                "Expecting NULL AFI (0), found %d, incorrect packet!", afi);
     }
 
     next_tvb = tvb_new_subset(tvb, offset, -1, -1);
@@ -1133,8 +1165,8 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     case LISP_MAP_NOTIFY:
         dissect_lisp_map_notify(tvb, pinfo, lisp_tree);
         break;
-    case LISP_INFO_REQUEST:
-        dissect_lisp_info_request(tvb, pinfo, lisp_tree);
+    case LISP_INFO:
+        dissect_lisp_info(tvb, pinfo, lisp_tree);
         break;
     case LISP_ECM:
         encapsulated = TRUE;
@@ -1243,14 +1275,14 @@ proto_register_lisp(void)
         { &hf_lisp_mnot_res,
             { "Reserved bits", "lisp.mnot.res",
             FT_UINT24, BASE_HEX, NULL, MAP_NOT_RESERVED, "Must be zero", HFILL }},
-        { &hf_lisp_ireq_res1,
-            { "Reserved bits", "lisp.ireq.res1",
-            FT_UINT32, BASE_HEX, NULL, INFO_REQ_RESERVED, "Must be zero", HFILL }},
-        { &hf_lisp_ireq_ttl,
-            { "TTL", "lisp.ireq.ttl",
+        { &hf_lisp_info_res1,
+            { "Reserved bits", "lisp.info.res1",
+            FT_UINT32, BASE_HEX, NULL, INFO_RESERVED, "Must be zero", HFILL }},
+        { &hf_lisp_info_ttl,
+            { "TTL", "lisp.info.ttl",
             FT_UINT32, BASE_DEC, NULL, 0x0, "RTR information time-to-live", HFILL }},
-        { &hf_lisp_ireq_res2,
-            { "Reserved bits", "lisp.ireq.res2",
+        { &hf_lisp_info_res2,
+            { "Reserved bits", "lisp.info.res2",
             FT_UINT8, BASE_HEX, NULL, 0xFF, "Must be zero", HFILL }},
         { &hf_lisp_mapping_res,
             { "Reserved", "lisp.mapping.res",
