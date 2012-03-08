@@ -35,7 +35,12 @@
 #define INET_ADDRLEN        4
 #define INET6_ADDRLEN       16
 
-/* See draft-ietf-lisp-11 "Locator/ID Separation Protocol (LISP)" */
+/*
+ * See draft-ietf-lisp-22 "Locator/ID Separation Protocol (LISP)",
+ * draft-farinacci-lisp-lcaf-06 "LISP Canonical Address Format (LCAF)",
+ * and draft-ermagan-lisp-nat-00 "NAT traversal for LISP" for packet
+ * format and protocol information.
+ */
 
 #define LISP_CONTROL_PORT   4342
 
@@ -86,7 +91,8 @@
 
 #define MAP_NOT_RESERVED    0x0FFFFF
 
-#define INFO_RESERVED       0x0FFFFFFF
+#define INFO_FLAG_R         0x080000
+#define INFO_RESERVED       0x07FFFFFF
 
 /* Initialize the protocol and registered fields */
 static int proto_lisp = -1;
@@ -127,7 +133,8 @@ static int hf_lisp_mreg_res = -1;
 /* Map-Notify fields */
 static int hf_lisp_mnot_res = -1;
 
-/* Info-Request fields */
+/* Info fields */
+static int hf_lisp_info_r = -1;
 static int hf_lisp_info_res1 = -1;
 static int hf_lisp_info_ttl = -1;
 static int hf_lisp_info_res2 = -1;
@@ -961,7 +968,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
 
 
 /*
- *  Dissector code for Info-Request type control packets
+ *  Dissector code for Info type control packets
  *
  *        0                   1                   2                   3
  *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -982,10 +989,9 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                          EID-prefix                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |             AFI = 0           |   <Nothing Follows AFI=0>     |
- *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |               AFI             |              ...
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *
- *  Dissector code for Info-Reply type control packets
  */
 
 static void
@@ -993,13 +999,26 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
     gint offset = 0;
     tvbuff_t *next_tvb;
+    guint8 flags;
+    gboolean reply;
     guint16 authlen = 0;
     guint8 prefix_mask;
     guint16 prefix_afi, afi;
     guint32 prefix_v4;
     struct e_in6_addr prefix_v6;
 
-    /* Reserved bits (28 bits) */
+    /* Flags (1 bit) */
+    flags = tvb_get_guint8(tvb, offset);
+    reply = flags & (INFO_FLAG_R >> 16);
+
+    if (reply)
+        col_append_fstr(pinfo->cinfo, COL_INFO, "-Reply");
+    else
+        col_append_fstr(pinfo->cinfo, COL_INFO, "-Request");
+
+    proto_tree_add_item(lisp_tree, hf_lisp_info_r, tvb, offset, 3, FALSE);
+
+    /* Reserved bits (27 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_info_res1, tvb, offset, 4, FALSE);
     offset += 4;
 
@@ -1058,12 +1077,14 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
             return;
     }
 
-    afi  = tvb_get_ntohs(tvb, offset); offset += 2;
+    afi  = tvb_get_ntohs(tvb, offset);
 
     if (afi != 0) {
         proto_tree_add_text(lisp_tree, tvb, offset, 2,
                 "Expecting NULL AFI (0), found %d, incorrect packet!", afi);
     }
+
+    offset += 2;
 
     next_tvb = tvb_new_subset(tvb, offset, -1, -1);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
@@ -1275,6 +1296,9 @@ proto_register_lisp(void)
         { &hf_lisp_mnot_res,
             { "Reserved bits", "lisp.mnot.res",
             FT_UINT24, BASE_HEX, NULL, MAP_NOT_RESERVED, "Must be zero", HFILL }},
+        { &hf_lisp_info_r,
+            { "R bit (Info-Reply)", "lisp.info.r",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), INFO_FLAG_R, NULL, HFILL }},
         { &hf_lisp_info_res1,
             { "Reserved bits", "lisp.info.res1",
             FT_UINT32, BASE_HEX, NULL, INFO_RESERVED, "Must be zero", HFILL }},
