@@ -177,6 +177,32 @@ const value_string lisp_typevals[] = {
 };
 
 
+static const gchar *
+get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint8 *addr_len)
+{
+    const gchar *addr_str;
+    guint32 locator_v4;
+    struct e_in6_addr locator_v6;
+
+    switch (afi) {
+        case AFNUM_INET:
+            locator_v4 = tvb_get_ipv4(tvb, offset);
+            *addr_len = INET_ADDRLEN;
+            addr_str = ip_to_str((guint8 *)&locator_v4);
+            break;
+        case AFNUM_INET6:
+            tvb_get_ipv6(tvb, offset, &locator_v6);
+            *addr_len = INET6_ADDRLEN;
+            addr_str = ip6_to_str(&locator_v6);
+            break;
+        default:
+            return NULL;
+    }
+
+    return addr_str;
+}
+
+
 /*
  * Dissector code for Instance ID
  *
@@ -324,11 +350,9 @@ static int
 dissect_lisp_locator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_mapping_tree)
 {
     gint offset = 0;
-    guint8 prio, weight, m_prio, m_weight;
+    guint8 addr_len = 0, prio, weight, m_prio, m_weight;
     guint16 flags, loc_afi;
-    guint32 locator_v4;
-    struct e_in6_addr locator_v6;
-    tvbuff_t *next_tvb;
+    const gchar *locator;
 
     prio     = tvb_get_guint8(tvb, offset); offset += 1;
     weight   = tvb_get_guint8(tvb, offset); offset += 1;
@@ -337,34 +361,22 @@ dissect_lisp_locator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_mapping
     flags    = tvb_get_ntohs(tvb, offset);  offset += 2;
     loc_afi  = tvb_get_ntohs(tvb, offset);  offset += 2;
 
-    switch (loc_afi) {
-        case AFNUM_INET:
-            locator_v4 = tvb_get_ipv4(tvb, offset);
-            proto_tree_add_text(lisp_mapping_tree, tvb, 0, 8 + INET_ADDRLEN,
-                    "%sRLOC: %s%s, %s, Priority/Weight: %d/%d, Multicast Priority/Weight: %d/%d",
-                    (flags&LOCAL_BIT_MASK) ? "Local " : "",
-                    ip_to_str((guint8 *)&locator_v4),
-                    (flags&PROBE_BIT_MASK) ? " (probed)" : "",
-                    (flags&REACH_BIT_MASK) ? "Reachable" : "Unreachable",
-                    prio, weight, m_prio, m_weight);
-            offset += INET_ADDRLEN;
-            break;
-        case AFNUM_INET6:
-            tvb_get_ipv6(tvb, offset, &locator_v6);
-            proto_tree_add_text(lisp_mapping_tree, tvb, 0, 8 + INET6_ADDRLEN,
-                    "%sRLOC: %s%s, %s, Priority/Weight: %d/%d, Multicast Priority/Weight: %d/%d",
-                    (flags&LOCAL_BIT_MASK) ? "Local " : "",
-                    ip6_to_str(&locator_v6),
-                    (flags&PROBE_BIT_MASK) ? " (probed)" : "",
-                    (flags&REACH_BIT_MASK) ? "Reachable" : "Unreachable",
-                    prio, weight, m_prio, m_weight);
-            offset += INET6_ADDRLEN;
-            break;
-        default:
-            proto_tree_add_text(lisp_mapping_tree, tvb, 0, 2, "Unexpected AFI, cannot decode");
-            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
-            call_dissector(data_handle, next_tvb, pinfo, lisp_mapping_tree);
+    locator = get_addr_str(tvb, offset, loc_afi, &addr_len);
+
+    if (locator == NULL) {
+        proto_tree_add_text(lisp_mapping_tree, tvb, offset - 2, 2,
+                "Unexpected locator AFI (%d), cannot decode", loc_afi);
+        return offset;
     }
+
+    proto_tree_add_text(lisp_mapping_tree, tvb, 0, 8 + addr_len,
+            "%sRLOC: %s%s, %s, Priority/Weight: %d/%d, Multicast Priority/Weight: %d/%d",
+            (flags&LOCAL_BIT_MASK) ? "Local " : "",
+            locator,
+            (flags&PROBE_BIT_MASK) ? " (probed)" : "",
+            (flags&REACH_BIT_MASK) ? "Reachable" : "Unreachable",
+            prio, weight, m_prio, m_weight);
+    offset += addr_len;
 
     return offset;
 }
@@ -394,14 +406,11 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     gint offset = 0;
     gint mapver_offset = 0;
     guint32 ttl;
-    guint8 loc_cnt;
-    guint8 prefix_mask, flags, act;
+    guint8 addr_len = 0, loc_cnt, prefix_mask, flags, act;
     guint16 prefix_afi;
-    guint32 prefix_v4;
-    struct e_in6_addr prefix_v6;
+    const gchar *prefix;
     proto_item *tir;
     proto_tree *lisp_mapping_tree;
-    tvbuff_t *next_tvb;
     const char *lisp_actions[] = {
         "No-Action",
         "Natively-Forward",
@@ -421,40 +430,27 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     act >>= 5;
     if (act > 3) act = 4;
 
-    switch (prefix_afi) {
-        case AFNUM_INET:
-            prefix_v4 = tvb_get_ipv4(tvb, offset);
-            tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + INET_ADDRLEN,
-                    "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
-                    ip_to_str((guint8 *)&prefix_v4), prefix_mask,
-                    (ttl == 0xFFFFFFFF) ? "Unlimited" : g_strdup_printf("%d", ttl),
-                    (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
-            offset += INET_ADDRLEN;
-            /* Update the INFO column if there is only one record */
-            if (rec_cnt == 1)
-                col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
-                        ip_to_str((guint8 *)&prefix_v4), prefix_mask);
-            break;
-        case AFNUM_INET6:
-            tvb_get_ipv6(tvb, offset, &prefix_v6);
-            tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + INET6_ADDRLEN,
-                    "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
-                    ip6_to_str(&prefix_v6), prefix_mask,
-                    (ttl == 0xFFFFFFFF) ? "Unlimited" : g_strdup_printf("%d", ttl),
-                    (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
-            offset += INET6_ADDRLEN;
-            /* Update the INFO column if there is only one record */
-            if (rec_cnt == 1)
-                col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
-                        ip6_to_str(&prefix_v6), prefix_mask);
-            break;
-        default:
-            proto_tree_add_text(lisp_tree, tvb, 10, 2, "Unexpected AFI, cannot decode");
-            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
-            call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
-            return offset;
+    prefix = get_addr_str(tvb, offset, prefix_afi, &addr_len);
+
+    if (prefix == NULL) {
+        proto_tree_add_text(lisp_tree, tvb, 10, 2,
+                "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
+        return offset;
     }
 
+    tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
+            "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
+            prefix, prefix_mask,
+            (ttl == 0xFFFFFFFF) ? "Unlimited" : g_strdup_printf("%d", ttl),
+            (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
+    offset += addr_len;
+
+    /* Update the INFO column if there is only one record */
+    if (rec_cnt == 1)
+        col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
+                prefix, prefix_mask);
+
+    /* Create a sub-tree for the mapping */
     lisp_mapping_tree = proto_item_add_subtree(tir, ett_lisp_mapping);
 
     /* Reserved (4 bits) */
@@ -629,7 +625,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 break;
             default:
                 proto_tree_add_text(lisp_tree, tvb, offset, 2,
-                        "Unexpected ITR-RLOC-AFI, cannot decode");
+                        "Unexpected ITR-RLOC-AFI (%d), cannot decode", itr_afi);
                 next_tvb = tvb_new_subset(tvb, offset, -1, -1);
                 call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
                 return;
@@ -638,65 +634,42 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 
     /* Query records */
     for(i=0; i < rec_cnt; i++) {
-        guint8 reserved;
-        guint8 prefix_mask;
+        guint8 addr_len = 0, reserved, prefix_mask;
         guint16 prefix_afi;
-        guint32 prefix_v4;
-        struct e_in6_addr prefix_v6;
+        const gchar *prefix;
         proto_item *tir;
         proto_tree *lisp_record_tree;
 
         reserved = tvb_get_guint8(tvb, offset);
         prefix_mask = tvb_get_guint8(tvb, offset + 1);
         prefix_afi = tvb_get_ntohs(tvb, offset + 2);
+        prefix = get_addr_str(tvb, offset + 4, prefix_afi, &addr_len);
 
-        switch (prefix_afi) {
-            case AFNUM_INET:
-                prefix_v4 = tvb_get_ipv4(tvb, offset + 4);
-                tir = proto_tree_add_text(lisp_tree, tvb, offset, 4 + INET_ADDRLEN,
-                        "Record %d: %s/%d",
-                        i+1, ip_to_str((guint8 *)&prefix_v4), prefix_mask);
-                /* Update the INFO column if there is only one record */
-                if (rec_cnt == 1)
-                    col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
-                            ip_to_str((guint8 *)&prefix_v4), prefix_mask);
-                lisp_record_tree = proto_item_add_subtree(tir, ett_lisp_record);
-                proto_tree_add_text(lisp_record_tree, tvb, offset, 1, "Reserved bits: 0x%02X",
-                        reserved);
-                proto_tree_add_text(lisp_record_tree, tvb, offset + 1, 1, "Prefix length: %d",
-                        prefix_mask);
-                proto_tree_add_text(lisp_record_tree, tvb, offset + 2, 2, "Prefix AFI: %d",
-                        prefix_afi);
-                proto_tree_add_text(lisp_record_tree, tvb, offset + 4, INET_ADDRLEN, "Prefix: %s",
-                        ip_to_str((guint8 *)&prefix_v4));
-                offset += 4 + INET_ADDRLEN;
-                break;
-            case AFNUM_INET6:
-                tvb_get_ipv6(tvb, offset + 4, &prefix_v6);
-                tir = proto_tree_add_text(lisp_tree, tvb, offset, 4 + INET6_ADDRLEN,
-                        "Record %d: %s/%d",
-                        i+1, ip6_to_str(&prefix_v6), prefix_mask);
-                /* Update the INFO column if there is only one record */
-                if (rec_cnt == 1)
-                    col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
-                            ip6_to_str(&prefix_v6), prefix_mask);
-                lisp_record_tree = proto_item_add_subtree(tir, ett_lisp_record);
-                proto_tree_add_text(lisp_record_tree, tvb, offset, 1, "Reserved bits: 0x%02X",
-                        reserved);
-                proto_tree_add_text(lisp_record_tree, tvb, offset + 1, 1, "Prefix length: %d",
-                        prefix_mask);
-                proto_tree_add_text(lisp_record_tree, tvb, offset + 2, 2, "Prefix AFI: %d",
-                        prefix_afi);
-                proto_tree_add_text(lisp_record_tree, tvb, offset + 4, INET6_ADDRLEN, "Prefix: %s",
-                        ip6_to_str(&prefix_v6));
-                offset += 4 + INET6_ADDRLEN;
-                break;
-            default:
-                proto_tree_add_text(lisp_tree, tvb, offset + 2, 2, "Unexpected AFI, cannot decode");
-                next_tvb = tvb_new_subset(tvb, offset, -1, -1);
-                call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
-                return;
+        if (prefix == NULL) {
+            proto_tree_add_text(lisp_tree, tvb, offset + 2, 2,
+                    "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
+            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+            call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+            return;
         }
+
+        tir = proto_tree_add_text(lisp_tree, tvb, offset, 4 + addr_len,
+                "Record %d: %s/%d", i+1, prefix, prefix_mask);
+
+        /* Update the INFO column if there is only one record */
+        if (rec_cnt == 1)
+            col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d", prefix, prefix_mask);
+
+        lisp_record_tree = proto_item_add_subtree(tir, ett_lisp_record);
+        proto_tree_add_text(lisp_record_tree, tvb, offset, 1, "Reserved bits: 0x%02X",
+                reserved);
+        proto_tree_add_text(lisp_record_tree, tvb, offset + 1, 1, "Prefix length: %d",
+                prefix_mask);
+        proto_tree_add_text(lisp_record_tree, tvb, offset + 2, 2, "Prefix AFI: %d",
+                prefix_afi);
+        proto_tree_add_text(lisp_record_tree, tvb, offset + 4, addr_len, "Prefix: %s",
+                prefix);
+        offset += 4 + addr_len;
     }
 
     /* If M bit is set, we also have a Map-Reply */
@@ -1004,8 +977,8 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     guint16 authlen = 0;
     guint8 prefix_mask;
     guint16 prefix_afi, afi;
-    guint32 prefix_v4;
-    struct e_in6_addr prefix_v6;
+    const gchar *prefix;
+    guint8 addr_len = 0;
 
     /* Flags (1 bit) */
     flags = tvb_get_guint8(tvb, offset);
@@ -1050,32 +1023,22 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 
     prefix_mask = tvb_get_guint8(tvb, offset); offset += 1;
     prefix_afi  = tvb_get_ntohs(tvb, offset);  offset += 2;
+    prefix      = get_addr_str(tvb, offset, prefix_afi, &addr_len);
 
-    switch (prefix_afi) {
-        case AFNUM_INET:
-            prefix_v4 = tvb_get_ipv4(tvb, offset);
-            proto_tree_add_text(lisp_tree, tvb, offset - 3, 3 + INET_ADDRLEN,
-                    "EID prefix: %s/%d", ip_to_str((guint8 *)&prefix_v4), prefix_mask);
-            offset += INET_ADDRLEN;
-            /* Update the INFO column */
-            col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
-                    ip_to_str((guint8 *)&prefix_v4), prefix_mask);
-            break;
-        case AFNUM_INET6:
-            tvb_get_ipv6(tvb, offset, &prefix_v6);
-            proto_tree_add_text(lisp_tree, tvb, offset - 3, 3 + INET6_ADDRLEN,
-                    "EID prefix: %s/%d", ip6_to_str(&prefix_v6), prefix_mask);
-            offset += INET6_ADDRLEN;
-            /* Update the INFO column */
-            col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d",
-                    ip6_to_str(&prefix_v6), prefix_mask);
-            break;
-        default:
-            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2, "Unexpected AFI, cannot decode");
-            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
-            call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
-            return;
+    if (prefix == NULL) {
+        proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+                "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
+        next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+        return;
     }
+
+    proto_tree_add_text(lisp_tree, tvb, offset - 3, 3 + addr_len,
+            "EID prefix: %s/%d", prefix, prefix_mask);
+    offset += addr_len;
+
+    /* Update the INFO column */
+    col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d", prefix, prefix_mask);
 
     afi  = tvb_get_ntohs(tvb, offset);
 
