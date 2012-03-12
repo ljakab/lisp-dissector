@@ -138,6 +138,7 @@ static int hf_lisp_info_r = -1;
 static int hf_lisp_info_res1 = -1;
 static int hf_lisp_info_ttl = -1;
 static int hf_lisp_info_res2 = -1;
+static int hf_lisp_info_afi = -1;
 
 /* Mapping record fields */
 static int hf_lisp_mapping_res = -1;
@@ -149,6 +150,10 @@ static int hf_lisp_lcaf_flags = -1;
 static int hf_lisp_lcaf_type = -1;
 static int hf_lisp_lcaf_res2 = -1;
 static int hf_lisp_lcaf_length = -1;
+
+/* LCAF NATT fields */
+static int hf_lisp_lcaf_natt_msport = -1;
+static int hf_lisp_lcaf_natt_etrport = -1;
 
 /* Encapsulated Control Message fields */
 static int hf_lisp_ecm_res = -1;
@@ -202,6 +207,31 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint8 *addr_len)
     return addr_str;
 }
 
+static int
+dissect_lcaf_natt_rloc(tvbuff_t *tvb, proto_tree *tree, gint offset, const gchar *str, int idx)
+{
+    guint8 addr_len = 0;
+    guint16 rloc_afi;
+    const gchar *rloc_str;
+
+    rloc_afi = tvb_get_ntohs(tvb, offset); offset += 2;
+    rloc_str = get_addr_str(tvb, offset, rloc_afi, &addr_len);
+
+    if (rloc_str == NULL) {
+        proto_tree_add_text(tree, tvb, offset - 2, 2,
+                "Unexpected RLOC AFI (%d), cannot decode", rloc_afi);
+        return offset;
+    }
+
+    if (idx) {
+        proto_tree_add_text(tree, tvb, offset - 2, 2 + addr_len, str, idx, rloc_str);
+    } else {
+        proto_tree_add_text(tree, tvb, offset - 2, 2 + addr_len, str, rloc_str);
+    }
+    offset += addr_len;
+
+    return addr_len + 2;
+}
 
 /*
  * Dissector code for Instance ID
@@ -261,8 +291,43 @@ dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
  */
 
 static int
-dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset)
+dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
 {
+    gint remaining = length, len, i;
+    const gchar *global_etr  = "Global ETR RLOC: %s";
+    const gchar *ms          = "MS RLOC: %s";
+    const gchar *private_etr = "Private ETR RLOC: %s";
+    const gchar *rtr         = "RTR RLOC %d: %s";
+
+    remaining -= 4;
+
+    proto_tree_add_item(tree, hf_lisp_lcaf_natt_msport, tvb, offset, 2, FALSE);
+    offset += 2;
+    remaining -= 2;
+    proto_tree_add_item(tree, hf_lisp_lcaf_natt_etrport, tvb, offset, 2, FALSE);
+    offset += 2;
+    remaining -= 2;
+
+    len = dissect_lcaf_natt_rloc(tvb, tree, offset, global_etr, 0);
+    offset += len;
+    remaining -= len;
+
+    len = dissect_lcaf_natt_rloc(tvb, tree, offset, ms, 0);
+    offset += len;
+    remaining -= len;
+
+    len = dissect_lcaf_natt_rloc(tvb, tree, offset, private_etr, 0);
+    offset += len;
+    remaining -= len;
+
+    i = 1;
+    while (remaining > 0) {
+        len = dissect_lcaf_natt_rloc(tvb, tree, offset, rtr, i);
+        offset += len;
+        remaining -= len;
+        i++;
+    }
+
     return offset;
 }
 
@@ -297,6 +362,7 @@ static int
 dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
 {
     guint8 lcaf_type;
+    guint16 len;
 
     /* We should print here the AFI in numeric form */
     offset += 2;
@@ -305,6 +371,11 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
     offset += 2;
 
     lcaf_type = tvb_get_guint8(tvb, offset); offset += 1;
+
+    offset += 1;
+    len = tvb_get_ntohs(tvb, offset);
+    //proto_tree_add_item(tree, hf_lisp_lcaf_length, tvb, offset, 2, FALSE);
+    offset += 2;
 
     switch (lcaf_type) {
         case LCAF_NULL:
@@ -316,7 +387,7 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
             offset = dissect_lcaf_iid(tvb, tree, offset);
             break;
         case LCAF_NATT:
-            offset = dissect_lcaf_natt(tvb, tree, offset);
+            offset = dissect_lcaf_natt(tvb, tree, offset, len);
             break;
         default:
             if (lcaf_type < 12)
@@ -347,7 +418,7 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
  */
 
 static int
-dissect_lisp_locator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_mapping_tree)
+dissect_lisp_locator(tvbuff_t *tvb, proto_tree *lisp_mapping_tree)
 {
     gint offset = 0;
     guint8 addr_len = 0, prio, weight, m_prio, m_weight;
@@ -465,7 +536,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
         int len = 0;
 
         loc_tvb = tvb_new_subset(tvb, offset, -1, -1);
-        len = dissect_lisp_locator(loc_tvb, pinfo, lisp_mapping_tree);
+        len = dissect_lisp_locator(loc_tvb, lisp_mapping_tree);
         offset += len;
     }
 
@@ -1040,14 +1111,22 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     /* Update the INFO column */
     col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d", prefix, prefix_mask);
 
-    afi  = tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_afi, tvb, offset, 2, FALSE);
+    afi  = tvb_get_ntohs(tvb, offset); offset += 2;
 
-    if (afi != 0) {
-        proto_tree_add_text(lisp_tree, tvb, offset, 2,
-                "Expecting NULL AFI (0), found %d, incorrect packet!", afi);
+    if (!reply) {
+        if (afi != 0) {
+            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+                    "Expecting NULL AFI (0), found %d, incorrect packet!", afi);
+        }
+    } else {
+        if (afi != 16387) {
+            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+                    "Expecting LCAF AFI (16387), found %d, incorrect packet!", afi);
+        } else {
+            offset = dissect_lcaf(tvb, lisp_tree, offset - 2);
+        }
     }
-
-    offset += 2;
 
     next_tvb = tvb_new_subset(tvb, offset, -1, -1);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
@@ -1271,6 +1350,9 @@ proto_register_lisp(void)
         { &hf_lisp_info_res2,
             { "Reserved bits", "lisp.info.res2",
             FT_UINT8, BASE_HEX, NULL, 0xFF, "Must be zero", HFILL }},
+        { &hf_lisp_info_afi,
+            { "AFI", "lisp.info.afi",
+            FT_UINT16, BASE_DEC, NULL, 0x0, "Address Family Indicator", HFILL }},
         { &hf_lisp_mapping_res,
             { "Reserved", "lisp.mapping.res",
             FT_UINT16, BASE_HEX, NULL, 0xF000, NULL, HFILL }},
@@ -1280,6 +1362,15 @@ proto_register_lisp(void)
         { &hf_lisp_ecm_res,
             { "Reserved bits", "lisp.ecm_res",
             FT_UINT32, BASE_HEX, NULL, 0x0FFFFFFF, NULL, HFILL }},
+        { &hf_lisp_lcaf_length,
+            { "Length", "lisp.lcaf.length",
+            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_natt_msport,
+            { "MS UDP Port Number", "lisp.lcaf.natt.msport",
+            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_natt_etrport,
+            { "ETR UDP Port Number", "lisp.lcaf.natt.etrport",
+            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
     };
 
     /* Setup protocol subtree array */
