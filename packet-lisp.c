@@ -37,8 +37,8 @@
 
 /*
  * See draft-ietf-lisp-22 "Locator/ID Separation Protocol (LISP)",
- * draft-farinacci-lisp-lcaf-06 "LISP Canonical Address Format (LCAF)",
- * and draft-ermagan-lisp-nat-00 "NAT traversal for LISP" for packet
+ * draft-farinacci-lisp-lcaf-06 "LISP Canonical Address Format (LCAF)", and
+ * draft-ermagan-lisp-nat-traversal-00 "NAT traversal for LISP" for packet
  * format and protocol information.
  */
 
