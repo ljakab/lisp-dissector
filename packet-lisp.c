@@ -203,25 +203,27 @@ static const gchar *
 get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint8 *addr_len)
 {
     const gchar *addr_str;
+    const gchar *notset_str = "not set";
     guint32 locator_v4;
     struct e_in6_addr locator_v6;
 
     switch (afi) {
+        case AFNUM_RESERVED:
+            *addr_len = 0;
+            return notset_str;
         case AFNUM_INET:
             locator_v4 = tvb_get_ipv4(tvb, offset);
             *addr_len = INET_ADDRLEN;
             addr_str = ip_to_str((guint8 *)&locator_v4);
-            break;
+            return addr_str;
         case AFNUM_INET6:
             tvb_get_ipv6(tvb, offset, &locator_v6);
             *addr_len = INET6_ADDRLEN;
             addr_str = ip6_to_str(&locator_v6);
-            break;
+            return addr_str;
         default:
             return NULL;
     }
-
-    return addr_str;
 }
 
 static int
