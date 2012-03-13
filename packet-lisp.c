@@ -202,24 +202,24 @@ const value_string lcaf_typevals[] = {
 static const gchar *
 get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint8 *addr_len)
 {
-    const gchar *addr_str;
-    const gchar *notset_str = "not set";
-    guint32 locator_v4;
-    struct e_in6_addr locator_v6;
+    const gchar       *notset_str = "not set";
+    const gchar       *addr_str;
+    guint32            locator_v4;
+    struct e_in6_addr  locator_v6;
 
     switch (afi) {
         case AFNUM_RESERVED:
-            *addr_len = 0;
+            *addr_len  = 0;
             return notset_str;
         case AFNUM_INET:
             locator_v4 = tvb_get_ipv4(tvb, offset);
-            *addr_len = INET_ADDRLEN;
-            addr_str = ip_to_str((guint8 *)&locator_v4);
+            *addr_len  = INET_ADDRLEN;
+            addr_str   = ip_to_str((guint8 *)&locator_v4);
             return addr_str;
         case AFNUM_INET6:
             tvb_get_ipv6(tvb, offset, &locator_v6);
-            *addr_len = INET6_ADDRLEN;
-            addr_str = ip6_to_str(&locator_v6);
+            *addr_len  = INET6_ADDRLEN;
+            addr_str   = ip6_to_str(&locator_v6);
             return addr_str;
         default:
             return NULL;
@@ -229,8 +229,8 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint8 *addr_len)
 static int
 dissect_lcaf_natt_rloc(tvbuff_t *tvb, proto_tree *tree, gint offset, const gchar *str, int idx)
 {
-    guint8 addr_len = 0;
-    guint16 rloc_afi;
+    guint8       addr_len = 0;
+    guint16      rloc_afi;
     const gchar *rloc_str;
 
     rloc_afi = tvb_get_ntohs(tvb, offset); offset += 2;
@@ -312,7 +312,9 @@ dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
 static int
 dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
 {
-    gint remaining = length, len, i;
+    gint         i;
+    gint         len;
+    gint         remaining   = length;
     const gchar *global_etr  = "Global ETR RLOC: %s";
     const gchar *ms          = "MS RLOC: %s";
     const gchar *private_etr = "Private ETR RLOC: %s";
@@ -380,7 +382,7 @@ dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
 static int
 dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, proto_tree *lcaf_tree, gint offset)
 {
-    guint8 lcaf_type;
+    guint8  lcaf_type;
     guint16 len;
 
     /* Reserved bits (8 bits) */
@@ -445,9 +447,14 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, proto_tree *lcaf_tree, gint offset
 static int
 dissect_lisp_locator(tvbuff_t *tvb, proto_tree *lisp_mapping_tree)
 {
-    gint offset = 0;
-    guint8 addr_len = 0, prio, weight, m_prio, m_weight;
-    guint16 flags, loc_afi;
+    gint         offset   = 0;
+    guint8       addr_len = 0;
+    guint8       prio;
+    guint8       weight;
+    guint8       m_prio;
+    guint8       m_weight;
+    guint16      flags;
+    guint16      loc_afi;
     const gchar *locator;
 
     prio     = tvb_get_guint8(tvb, offset); offset += 1;
@@ -498,15 +505,20 @@ dissect_lisp_locator(tvbuff_t *tvb, proto_tree *lisp_mapping_tree)
 static int
 dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, guint8 rec_cnt)
 {
-    int i;
-    gint offset = 0;
-    gint mapver_offset = 0;
-    guint32 ttl;
-    guint8 addr_len = 0, loc_cnt, prefix_mask, flags, act;
-    guint16 prefix_afi;
+    int          i;
+    gint         offset        = 0;
+    gint         mapver_offset = 0;
+    guint32      ttl;
+    guint8       addr_len      = 0;
+    guint8       loc_cnt;
+    guint8       prefix_mask
+    guint8       flags;
+    guint8       act;
+    guint16      prefix_afi;
     const gchar *prefix;
-    proto_item *tir;
-    proto_tree *lisp_mapping_tree;
+    proto_item  *tir;
+    proto_tree  *lisp_mapping_tree;
+
     const char *lisp_actions[] = {
         "No-Action",
         "Natively-Forward",
@@ -560,7 +572,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
         tvbuff_t *loc_tvb;
         int len = 0;
 
-        loc_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        loc_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_locator(loc_tvb, lisp_mapping_tree);
         offset += len;
     }
@@ -601,19 +613,19 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
 static void
 dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
-    int i;
-    gint offset = 0;
-    guint16 flags;
-    gboolean mrep = FALSE;
-    gboolean smr = FALSE;
-    gboolean probe = FALSE;
-    gboolean pitr = FALSE;
-    gboolean smr_invoked = FALSE;
-    guint8 itr_rec_cnt = 0;
-    guint8 rec_cnt = 0;
-    guint16 src_eid_afi;
-    struct e_in6_addr e_in6_addr;
-    tvbuff_t *next_tvb;
+    int                i;
+    gint               offset      = 0;
+    guint16            flags;
+    gboolean           mrep        = FALSE;
+    gboolean           smr         = FALSE;
+    gboolean           probe       = FALSE;
+    gboolean           pitr        = FALSE;
+    gboolean           smr_invoked = FALSE;
+    guint8             itr_rec_cnt = 0;
+    guint8             rec_cnt     = 0;
+    guint16            src_eid_afi;
+    struct e_in6_addr  e_in6_addr;
+    tvbuff_t          *next_tvb;
 
     /* Flags (6 bits)*/
     flags       = tvb_get_ntohs(tvb, offset);
@@ -683,7 +695,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         default:
             proto_tree_add_text(lisp_tree, tvb, offset, 0,
                     "Unexpected Source EID AFI, cannot decode");
-            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+            next_tvb = tvb_new_subset_remaining(tvb, offset);
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
             return;
     }
@@ -722,7 +734,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
             default:
                 proto_tree_add_text(lisp_tree, tvb, offset, 2,
                         "Unexpected ITR-RLOC-AFI (%d), cannot decode", itr_afi);
-                next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+                next_tvb = tvb_new_subset_remaining(tvb, offset);
                 call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
                 return;
         }
@@ -744,7 +756,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         if (prefix == NULL) {
             proto_tree_add_text(lisp_tree, tvb, offset + 2, 2,
                     "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
-            next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+            next_tvb = tvb_new_subset_remaining(tvb, offset);
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
             return;
         }
@@ -778,12 +790,12 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         tim = proto_tree_add_text(lisp_tree, tvb, offset, -1, "Map-Reply record");
         lisp_mr_tree = proto_item_add_subtree(tim, ett_lisp_mr);
 
-        rep_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        rep_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_mapping(rep_tvb, pinfo, lisp_mr_tree, 0);
         offset += len;
     }
 
-    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
 }
 
@@ -821,10 +833,10 @@ static void
 dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
     int i;
-    gint offset = 0;
-    gboolean probe = FALSE;
-    guint8 flags;
-    guint8 rec_cnt = 0;
+    gint      offset  = 0;
+    gboolean  probe   = FALSE;
+    guint8    flags;
+    guint8    rec_cnt = 0;
     tvbuff_t *next_tvb;
 
     /* Flags (2 bits) */
@@ -854,12 +866,12 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
         tvbuff_t *rec_tvb;
         int len = 0;
 
-        rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        rec_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
     }
 
-    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
 }
 
@@ -900,11 +912,11 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 static void
 dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
-    int i;
-    gint offset = 0;
-    guint8 rec_cnt = 0;
+    int       i;
+    gint      offset  = 0;
+    guint8    rec_cnt = 0;
     tvbuff_t *next_tvb;
-    guint16 authlen = 0;
+    guint16   authlen = 0;
 
     /* Flags (1 bit) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_pmr, tvb, offset, 3, FALSE);
@@ -943,12 +955,12 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
         tvbuff_t *rec_tvb;
         int len = 0;
 
-        rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        rec_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
     }
 
-    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
 }
 
@@ -989,11 +1001,11 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
 static void
 dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
-    int i;
-    gint offset = 0;
-    guint8 rec_cnt = 0;
+    int       i;
+    gint      offset  = 0;
+    guint8    rec_cnt = 0;
     tvbuff_t *next_tvb;
-    guint16 authlen = 0;
+    guint16   authlen = 0;
 
     /* Reserved bits (20 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mnot_res, tvb, offset, 3, FALSE);
@@ -1026,12 +1038,12 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
         tvbuff_t *rec_tvb;
         int len = 0;
 
-        rec_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        rec_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
     }
 
-    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
 }
 
@@ -1066,17 +1078,17 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
 static void
 dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
-    gint offset = 0;
-    tvbuff_t *next_tvb;
-    guint8 flags;
-    gboolean reply;
-    guint16 authlen = 0;
-    guint8 prefix_mask;
-    guint16 prefix_afi, afi;
+    gint         offset   = 0;
+    tvbuff_t    *next_tvb;
+    guint8       flags;
+    gboolean     reply;
+    guint16      authlen  = 0;
+    guint8       prefix_mask;
+    guint16      prefix_afi, afi;
     const gchar *prefix;
-    guint8 addr_len = 0;
-    proto_item *tir;
-    proto_tree *lisp_lcaf_tree;
+    guint8       addr_len = 0;
+    proto_item  *tir;
+    proto_tree  *lisp_lcaf_tree;
 
     /* Flags (1 bit) */
     flags = tvb_get_guint8(tvb, offset);
@@ -1126,7 +1138,7 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     if (prefix == NULL) {
         proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
                 "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
-        next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+        next_tvb = tvb_new_subset_remaining(tvb, offset);
         call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
         return;
     }
@@ -1157,7 +1169,7 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
         }
     }
 
-    next_tvb = tvb_new_subset(tvb, offset, -1, -1);
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
 }
 
@@ -1178,12 +1190,12 @@ static void
 dissect_lisp_ecm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree *lisp_tree)
 {
     tvbuff_t *next_tvb;
-    guint8 ip_ver;
+    guint8    ip_ver;
 
     proto_tree_add_item(lisp_tree, hf_lisp_ecm_res, tvb, 0, 4, FALSE);
 
     /* Determine if encapsulated packet is IPv4 or IPv6, and call dissector */
-    next_tvb = tvb_new_subset(tvb, LISP_ECM_HEADER_LEN, -1, -1);
+    next_tvb = tvb_new_subset_remaining(tvb, LISP_ECM_HEADER_LEN);
     ip_ver = tvb_get_bits8(next_tvb, 0, 4);
 
     switch (ip_ver) {
