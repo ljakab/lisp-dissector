@@ -1316,7 +1316,7 @@ proto_register_lisp(void)
             FT_UINT24, BASE_HEX, NULL, MAP_REQ_RESERVED, "Must be zero", HFILL }},
         { &hf_lisp_mreq_srceid_afi,
             { "Source EID AFI", "lisp.mreq.srceid_afi",
-            FT_UINT16, BASE_DEC, NULL, 0x0, "Source EID Address Family Indicator", HFILL }},
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, "Source EID Address Family Indicator", HFILL }},
         { &hf_lisp_mreq_srceid,
             { "Source EID", "lisp.mreq.srceid",
             FT_IPv4, BASE_NONE, NULL, 0x0, "Source EID Address", HFILL }},
