@@ -66,6 +66,7 @@
 #define LCAF_SEC_KEY        11
 
 #define LISP_ECM_HEADER_LEN 4
+#define LISP_XTRID_LEN      16
 
 #define LISP_MAP_ACT        0xE0
 #define LISP_MAP_AUTH       0x10
@@ -86,7 +87,9 @@
 #define MAP_REP_RESERVED    0x03FFFF
 
 #define MAP_REG_FLAG_P      0x080000
-#define MAP_REG_RESERVED    0x07FFFE
+#define MAP_REG_FLAG_I      0x020000
+#define MAP_REG_FLAG_R      0x010000
+#define MAP_REG_RESERVED    0x00FFFE
 #define MAP_REG_FLAG_M      0x000001
 
 #define MAP_NOT_RESERVED    0x0FFFFF
@@ -103,6 +106,7 @@ static int hf_lisp_nonce = -1;
 static int hf_lisp_keyid = -1;
 static int hf_lisp_authlen = -1;
 static int hf_lisp_auth = -1;
+static int hf_lisp_xtrid = -1;
 
 /* Map-Request fields */
 static int hf_lisp_mreq_flags_auth = -1;
@@ -127,6 +131,8 @@ static int hf_lisp_mrep_res = -1;
 /* Map-Register fields */
 static int hf_lisp_mreg_flags = -1;
 static int hf_lisp_mreg_flags_pmr = -1;
+static int hf_lisp_mreg_flags_xtrid = -1;
+static int hf_lisp_mreg_flags_rtr = -1;
 static int hf_lisp_mreg_flags_wmn = -1;
 static int hf_lisp_mreg_res = -1;
 
@@ -511,7 +517,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     guint32      ttl;
     guint8       addr_len      = 0;
     guint8       loc_cnt;
-    guint8       prefix_mask
+    guint8       prefix_mask;
     guint8       flags;
     guint8       act;
     guint16      prefix_afi;
@@ -917,11 +923,25 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     guint8    rec_cnt = 0;
     tvbuff_t *next_tvb;
     guint16   authlen = 0;
+    guint16   flags;
+    gboolean  xtrid   = FALSE;
+    gboolean  rtr     = FALSE;
 
     /* Flags (1 bit) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_pmr, tvb, offset, 3, FALSE);
 
-    /* Reserved bits (18 bits) */
+    /* Flags defined in NAT Traversal draft (2 bits) */
+    flags = tvb_get_ntohs(tvb, offset);
+    xtrid = flags & (MAP_REG_FLAG_I >> 8);
+    rtr   = flags & (MAP_REG_FLAG_R >> 8);
+
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_xtrid, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_rtr, tvb, offset, 3, FALSE);
+
+    if (rtr)
+        col_append_fstr(pinfo->cinfo, COL_INFO, " (RTR)");
+
+    /* Reserved bits (15 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_res, tvb, offset, 3, FALSE);
 
     /* Flags (1 bit) */
@@ -958,6 +978,12 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
         rec_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
+    }
+
+    /* If I bit is set, we have an xTR-ID field */
+    if (xtrid) {
+        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, FALSE);
+        offset += LISP_XTRID_LEN;
     }
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
@@ -1361,6 +1387,12 @@ proto_register_lisp(void)
         { &hf_lisp_mreg_flags_pmr,
             { "P bit (Proxy-Map-Reply)", "lisp.mreg.flags.pmr",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_P, NULL, HFILL }},
+        { &hf_lisp_mreg_flags_xtrid,
+            { "I bit (xTR-ID present)", "lisp.mreg.flags.xtrid",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_I, NULL, HFILL }},
+        { &hf_lisp_mreg_flags_rtr,
+            { "R bit (Built for an RTR)", "lisp.mreg.flags.rtr",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_R, NULL, HFILL }},
         { &hf_lisp_mreg_flags_wmn,
             { "M bit (Want-Map-Notify)", "lisp.mreg.flags.wmn",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_M, NULL, HFILL }},
@@ -1375,6 +1407,9 @@ proto_register_lisp(void)
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_auth,
             { "Authentication Data", "lisp.auth",
+            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_xtrid,
+            { "xTR-ID", "lisp.xtrid",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mnot_res,
             { "Reserved bits", "lisp.mnot.res",
