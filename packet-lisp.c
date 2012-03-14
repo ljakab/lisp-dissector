@@ -87,6 +87,7 @@
 #define MAP_REP_RESERVED    0x03FFFF
 
 #define MAP_REG_FLAG_P      0x080000
+#define MAP_REG_FLAG_S      0x040000
 #define MAP_REG_FLAG_I      0x020000
 #define MAP_REG_FLAG_R      0x010000
 #define MAP_REG_RESERVED    0x00FFFE
@@ -131,6 +132,7 @@ static int hf_lisp_mrep_res = -1;
 /* Map-Register fields */
 static int hf_lisp_mreg_flags = -1;
 static int hf_lisp_mreg_flags_pmr = -1;
+static int hf_lisp_mreg_flags_sec = -1;
 static int hf_lisp_mreg_flags_xtrid = -1;
 static int hf_lisp_mreg_flags_rtr = -1;
 static int hf_lisp_mreg_flags_wmn = -1;
@@ -930,6 +932,9 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     /* Flags (1 bit) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_pmr, tvb, offset, 3, FALSE);
 
+    /* Flags defined in LISP-SEC draft (1 bit) */
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_sec, tvb, offset, 3, FALSE);
+
     /* Flags defined in NAT Traversal draft (2 bits) */
     flags = tvb_get_ntohs(tvb, offset);
     xtrid = flags & (MAP_REG_FLAG_I >> 8);
@@ -1387,6 +1392,9 @@ proto_register_lisp(void)
         { &hf_lisp_mreg_flags_pmr,
             { "P bit (Proxy-Map-Reply)", "lisp.mreg.flags.pmr",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_P, NULL, HFILL }},
+        { &hf_lisp_mreg_flags_sec,
+            { "S bit (LISP-SEC capable)", "lisp.mreg.flags.sec",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_S, NULL, HFILL }},
         { &hf_lisp_mreg_flags_xtrid,
             { "I bit (xTR-ID present)", "lisp.mreg.flags.xtrid",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_I, NULL, HFILL }},
