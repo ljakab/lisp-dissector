@@ -93,7 +93,9 @@
 #define MAP_REG_RESERVED    0x00FFFE
 #define MAP_REG_FLAG_M      0x000001
 
-#define MAP_NOT_RESERVED    0x0FFFFF
+#define MAP_NOT_FLAG_I      0x080000
+#define MAP_NOT_FLAG_R      0x040000
+#define MAP_NOT_RESERVED    0x03FFFF
 
 #define INFO_FLAG_R         0x080000
 #define INFO_RESERVED       0x07FFFFFF
@@ -107,6 +109,9 @@ static int hf_lisp_nonce = -1;
 static int hf_lisp_keyid = -1;
 static int hf_lisp_authlen = -1;
 static int hf_lisp_auth = -1;
+static int hf_lisp_msrtr_keyid = -1;
+static int hf_lisp_msrtr_authlen = -1;
+static int hf_lisp_msrtr_auth = -1;
 static int hf_lisp_xtrid = -1;
 
 /* Map-Request fields */
@@ -139,6 +144,8 @@ static int hf_lisp_mreg_flags_wmn = -1;
 static int hf_lisp_mreg_res = -1;
 
 /* Map-Notify fields */
+static int hf_lisp_mnot_flags_xtrid = -1;
+static int hf_lisp_mnot_flags_rtr = -1;
 static int hf_lisp_mnot_res = -1;
 
 /* Info fields */
@@ -890,7 +897,7 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
  *        0                   1                   2                   3
  *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |Type=3 |P|            Reserved               |M| Record Count  |
+ *       |Type=3 |P|S|I|R|         Reserved            |M| Record Count  |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                         Nonce . . .                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -1002,7 +1009,7 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
  *        0                   1                   2                   3
  *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |Type=4 |              Reserved                 | Record Count  |
+ *       |Type=4 |I|R|            Reserved               | Record Count  |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                         Nonce . . .                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -1037,8 +1044,22 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
     guint8    rec_cnt = 0;
     tvbuff_t *next_tvb;
     guint16   authlen = 0;
+    guint16   flags;
+    gboolean  xtrid   = FALSE;
+    gboolean  rtr     = FALSE;
 
-    /* Reserved bits (20 bits) */
+    /* Flags defined in NAT Traversal draft (2 bits) */
+    flags = tvb_get_ntohs(tvb, offset);
+    xtrid = flags & (MAP_NOT_FLAG_I >> 8);
+    rtr   = flags & (MAP_NOT_FLAG_R >> 8);
+
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_xtrid, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_rtr, tvb, offset, 3, FALSE);
+
+    if (rtr)
+        col_append_fstr(pinfo->cinfo, COL_INFO, " (RTR)");
+
+    /* Reserved bits (18 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mnot_res, tvb, offset, 3, FALSE);
     offset += 3;
 
@@ -1072,6 +1093,29 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
         rec_tvb = tvb_new_subset_remaining(tvb, offset);
         len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
         offset += len;
+    }
+
+    /* If I bit is set, we have an xTR-ID field */
+    if (xtrid) {
+        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, FALSE);
+        offset += LISP_XTRID_LEN;
+    }
+
+    /* If R bit is set, we have MS-RTR authentication data */
+    if (rtr) {
+        /* MS-RTR Key ID (16 bits) */
+        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_keyid, tvb, offset, 2, FALSE);
+        offset += 2;
+
+        /* MS-RTR Authentication Data Length (16 bits) */
+        authlen = tvb_get_ntohs(tvb, offset);
+        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_authlen, tvb, offset, 2, FALSE);
+        offset += 2;
+
+        /* MS-RTR Authentication Data */
+        /* XXX: need to check is there is still enough data in buffer */
+        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_auth, tvb, offset, authlen, FALSE);
+        offset += authlen;
     }
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
@@ -1388,7 +1432,7 @@ proto_register_lisp(void)
             FT_UINT24, BASE_HEX, NULL, MAP_REP_RESERVED, "Must be zero", HFILL }},
         { &hf_lisp_mreg_flags,
             { "Flags", "lisp.mreg.flags",
-            FT_UINT8, BASE_HEX, NULL, 0x08, NULL, HFILL }},
+            FT_UINT8, BASE_HEX, NULL, 0x0F, NULL, HFILL }},
         { &hf_lisp_mreg_flags_pmr,
             { "P bit (Proxy-Map-Reply)", "lisp.mreg.flags.pmr",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_P, NULL, HFILL }},
@@ -1416,9 +1460,24 @@ proto_register_lisp(void)
         { &hf_lisp_auth,
             { "Authentication Data", "lisp.auth",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_msrtr_keyid,
+            { "MS-RTR Key ID", "lisp.msrtr.keyid",
+            FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_msrtr_authlen,
+            { "MS-RTR Authentication Data Length", "lisp.msrtr.authlen",
+            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_msrtr_auth,
+            { "MS-RTR Authentication Data", "lisp.msrtr.auth",
+            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_xtrid,
             { "xTR-ID", "lisp.xtrid",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mnot_flags_xtrid,
+            { "I bit (xTR-ID present)", "lisp.mnot.flags.xtrid",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_I, NULL, HFILL }},
+        { &hf_lisp_mnot_flags_rtr,
+            { "R bit (Built for an RTR)", "lisp.mnot.flags.rtr",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_R, NULL, HFILL }},
         { &hf_lisp_mnot_res,
             { "Reserved bits", "lisp.mnot.res",
             FT_UINT24, BASE_HEX, NULL, MAP_NOT_RESERVED, "Must be zero", HFILL }},
