@@ -5,7 +5,6 @@ packet-lisp.c
 * Actually show the encapsulation header when present
 * Dissect locator sets in detail, highlighting individual fields in the hex
   data
-* Implement LCAF support
 
 Other
 =====
