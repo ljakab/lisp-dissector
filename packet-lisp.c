@@ -373,6 +373,11 @@ dissect_lcaf_afi_list(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 leng
                 lisp_elp_tree = proto_item_add_subtree(tir, ett_lisp_elp);
                 offset     = dissect_lcaf(tvb, lisp_elp_tree, offset);
                 remaining -= (offset - old_offset);
+                break;
+            default:
+                proto_tree_add_text(tree, tvb, offset - 2, 2,
+                    "Unexpected AFI (%d), cannot decode", afi);
+                return -1;
         }
         i++;
     }
@@ -885,8 +890,8 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
             offset += INET6_ADDRLEN;
             break;
         default:
-            proto_tree_add_text(lisp_tree, tvb, offset, 0,
-                    "Unexpected Source EID AFI, cannot decode");
+            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+                    "Unexpected Source EID AFI (%d), cannot decode", src_eid_afi);
             next_tvb = tvb_new_subset_remaining(tvb, offset);
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
             return;
