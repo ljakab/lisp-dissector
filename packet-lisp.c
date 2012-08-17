@@ -216,6 +216,9 @@ const value_string lcaf_typevals[] = {
 
 
 static int
+dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset);
+
+static int
 get_lcaf_data(tvbuff_t *tvb, gint offset, guint8 *lcaf_type, guint16 *len)
 {
     /* Jump over Rsvd1 and Flags (16 bits) */
@@ -321,6 +324,62 @@ dissect_lcaf_elp_hop(tvbuff_t *tvb, proto_tree *tree, gint offset, int idx)
 
     return addr_len + 4;
 }
+
+
+/*
+ * Dissector code for AFI List
+ *
+ */
+
+static int
+dissect_lcaf_afi_list(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
+{
+    gint old_offset;
+    gint remaining = length;
+    gint i = 1;
+
+    guint16            addr_len = 0;
+    guint16            afi;
+    guint32            ipv4;
+    struct e_in6_addr  ipv6;
+    const gchar       *lcaf_str;
+    proto_item        *tir;
+    proto_tree        *lisp_elp_tree;
+
+    while (remaining > 0) {
+        afi = tvb_get_ntohs(tvb, offset); offset += 2; remaining -= 2;
+
+        switch (afi) {
+            case AFNUM_INET:
+                ipv4 = tvb_get_ipv4(tvb, offset);
+                proto_tree_add_text(tree, tvb, offset - 2, 2 + INET_ADDRLEN,
+                        "%d. IPv4 Addess: %s", i, ip_to_str((guint8 *)&ipv4));
+                offset    += INET_ADDRLEN;
+                remaining -= INET_ADDRLEN;
+                break;
+            case AFNUM_INET6:
+                tvb_get_ipv6(tvb, offset, &ipv6);
+                proto_tree_add_text(tree, tvb, offset - 2, 2 + INET6_ADDRLEN,
+                        "%d. IPv6 Addess: %s", i, ip6_to_str(&ipv6));
+                offset    += INET6_ADDRLEN;
+                remaining -= INET6_ADDRLEN;
+                break;
+            case AFNUM_LCAF:
+                old_offset = offset;
+                lcaf_str = get_addr_str(tvb, offset, afi, &addr_len);
+                tir = proto_tree_add_text(tree, tvb, offset - 2, 2 + addr_len,
+                        "%d. %s", i, lcaf_str);
+                /* XXX need to check LCAF type */
+                lisp_elp_tree = proto_item_add_subtree(tir, ett_lisp_elp);
+                offset     = dissect_lcaf(tvb, lisp_elp_tree, offset);
+                remaining -= (offset - old_offset);
+        }
+        i++;
+    }
+
+    return offset;
+}
+
 
 /*
  * Dissector code for Instance ID
@@ -447,11 +506,10 @@ dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
 static int
 dissect_lcaf_elp(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
 {
-    gint i;
     gint len;
     gint remaining = length;
+    gint i = 1;
 
-    i = 1;
     while (remaining > 0) {
         len = dissect_lcaf_elp_hop(tvb, tree, offset, i);
         offset += len;
@@ -528,6 +586,9 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
     switch (lcaf_type) {
         case LCAF_NULL:
             break;
+        case LCAF_AFI_LIST:
+            offset = dissect_lcaf_afi_list(tvb, tree, offset, len);
+            break;
         case LCAF_IID:
             offset = dissect_lcaf_iid(tvb, tree, offset);
             break;
@@ -539,11 +600,11 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
             break;
         default:
             if (lcaf_type < 12)
-                proto_tree_add_text(tree, tvb, offset - 2, 1,
+                proto_tree_add_text(tree, tvb, offset - 4, 1,
                         "LCAF type %d (%s) not supported yet", lcaf_type,
-                        val_to_str(lcaf_type, lisp_typevals, "Unknown"));
+                        val_to_str(lcaf_type, lcaf_typevals, "Unknown"));
             else
-                proto_tree_add_text(tree, tvb, offset - 2, 1,
+                proto_tree_add_text(tree, tvb, offset - 4, 1,
                         "LCAF type %d is not defined", lcaf_type);
             return -1;
     }
