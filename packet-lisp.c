@@ -65,6 +65,7 @@
 #define LCAF_ELP            10
 #define LCAF_SEC_KEY        11
 
+#define LCAF_HEADER_LEN     6
 #define LISP_ECM_HEADER_LEN 4
 #define LISP_XTRID_LEN      16
 
@@ -235,7 +236,7 @@ get_lcaf_data(tvbuff_t *tvb, gint offset, guint8 *lcaf_type, guint16 *len)
     /* Length (16 bits) */
     if (len)
         /* Adding the size of the LCAF header as well */
-        *len = tvb_get_ntohs(tvb, offset) + 6;
+        *len = tvb_get_ntohs(tvb, offset) + LCAF_HEADER_LEN;
     offset += 2;
 
     return offset;
@@ -249,6 +250,8 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint16 *addr_len)
     guint32            locator_v4;
     struct e_in6_addr  locator_v6;
     guint8             lcaf_type;
+    guint32            iid;
+    guint16            cur_len;
 
     switch (afi) {
         case AFNUM_RESERVED:
@@ -267,6 +270,12 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint16 *addr_len)
         case AFNUM_LCAF:
             get_lcaf_data(tvb, offset, &lcaf_type, addr_len);
             addr_str = val_to_str(lcaf_type, lcaf_typevals, "Unknown (0x%02x)");
+            if (lcaf_type == LCAF_IID) {
+                iid = tvb_get_ntohl(tvb, offset + LCAF_HEADER_LEN);
+                afi = tvb_get_ntohs(tvb, offset + LCAF_HEADER_LEN + 4);
+                addr_str = get_addr_str(tvb, offset + LCAF_HEADER_LEN + 6, afi, &cur_len);
+                return g_strdup_printf("[%d] %s", iid, addr_str);
+            }
             return addr_str;
         default:
             return NULL;
@@ -811,6 +820,7 @@ static void
 dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
     int                i;
+    guint16            addr_len    = 0;
     gint               offset      = 0;
     guint16            flags;
     gboolean           mrep        = FALSE;
@@ -821,6 +831,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     guint8             itr_rec_cnt = 0;
     guint8             rec_cnt     = 0;
     guint16            src_eid_afi;
+    const gchar       *src_eid;
     struct e_in6_addr  e_in6_addr;
     tvbuff_t          *next_tvb;
 
@@ -889,6 +900,11 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                     hf_lisp_mreq_srceidv6, tvb, offset, INET6_ADDRLEN, (guint8 *)&e_in6_addr);
             offset += INET6_ADDRLEN;
             break;
+        case AFNUM_LCAF:
+            src_eid = get_addr_str(tvb, offset, src_eid_afi, &addr_len);
+            proto_tree_add_text(lisp_tree, tvb, offset, addr_len, "Source EID: %s", src_eid);
+            offset += addr_len;
+            break;
         default:
             proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
                     "Unexpected Source EID AFI (%d), cannot decode", src_eid_afi);
@@ -939,12 +955,13 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 
     /* Query records */
     for(i=0; i < rec_cnt; i++) {
-        guint16 addr_len = 0, reserved, prefix_mask;
+        guint16 reserved, prefix_mask;
         guint16 prefix_afi;
         const gchar *prefix;
         proto_item *tir;
         proto_tree *lisp_record_tree;
 
+        addr_len = 0;
         reserved = tvb_get_guint8(tvb, offset);
         prefix_mask = tvb_get_guint8(tvb, offset + 1);
         prefix_afi = tvb_get_ntohs(tvb, offset + 2);
