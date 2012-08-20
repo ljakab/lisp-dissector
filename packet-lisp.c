@@ -36,9 +36,9 @@
 #define INET6_ADDRLEN       16
 
 /*
- * See draft-ietf-lisp-22 "Locator/ID Separation Protocol (LISP)",
- * draft-farinacci-lisp-lcaf-06 "LISP Canonical Address Format (LCAF)", and
- * draft-ermagan-lisp-nat-traversal-00 "NAT traversal for LISP" for packet
+ * See draft-ietf-lisp-23 "Locator/ID Separation Protocol (LISP)",
+ * draft-farinacci-lisp-lcaf-10 "LISP Canonical Address Format (LCAF)", and
+ * draft-ermagan-lisp-nat-traversal-01 "NAT traversal for LISP" for packet
  * format and protocol information.
  */
 
@@ -64,6 +64,7 @@
 #define LCAF_MCAST_INFO     9
 #define LCAF_ELP            10
 #define LCAF_SEC_KEY        11
+#define LCAF_SRC_DST_KEY    12
 
 #define LCAF_HEADER_LEN     6
 #define LISP_ECM_HEADER_LEN 4
@@ -212,6 +213,7 @@ const value_string lcaf_typevals[] = {
     { LCAF_MCAST_INFO,      "Multicast Info" },
     { LCAF_ELP,             "Explicit Locator Path" },
     { LCAF_SEC_KEY,         "Security Key" },
+    { LCAF_SRC_DST_KEY,     "Source/Dest Key" },
     { 0,                    NULL}
 };
 
@@ -558,6 +560,7 @@ dissect_lcaf_elp(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
  *  Type 9:  Multicast Info Type
  *  Type 10: Explicit Locator Path Type
  *  Type 11: Security Key Type
+ *  Type 12: Source/Dest Key Type
  *
  */
 
@@ -613,7 +616,7 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
             offset = dissect_lcaf_elp(tvb, tree, offset, len);
             break;
         default:
-            if (lcaf_type < 12)
+            if (lcaf_type < 13)
                 proto_tree_add_text(tree, tvb, offset - 4, 1,
                         "LCAF type %d (%s) not supported yet", lcaf_type,
                         val_to_str(lcaf_type, lcaf_typevals, "Unknown"));
