@@ -2,7 +2,7 @@
  * Routines for LISP Data Message dissection
  * Copyright 2010, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp-data.c 35623 2011-01-22 16:48:02Z wmeier $
+ * $Id: packet-lisp-data.c 41724 2012-03-21 18:20:44Z wmeier $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -104,27 +104,27 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         /* create display subtree for the protocol */
         ti = proto_tree_add_item(tree, proto_lisp_data, tvb, 0,
-                LISP_DATA_HEADER_LEN, FALSE);
+                LISP_DATA_HEADER_LEN, ENC_NA);
 
         lisp_data_tree = proto_item_add_subtree(ti, ett_lisp_data);
 
         tif = proto_tree_add_item(lisp_data_tree,
-                hf_lisp_data_flags, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
 
         lisp_data_flags_tree = proto_item_add_subtree(tif, ett_lisp_data_flags);
 
         proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_nonce, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags_nonce, tvb, offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_lsb, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags_lsb, tvb, offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_enr, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags_enr, tvb, offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_mv, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags_mv, tvb, offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_iid, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags_iid, tvb, offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_res, tvb, offset, 1, FALSE);
+                hf_lisp_data_flags_res, tvb, offset, 1, ENC_BIG_ENDIAN);
 
         flags = tvb_get_guint8(tvb, offset);
         offset += 1;
@@ -140,38 +140,38 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         "Invalid flag combination: N and V can't be set both");
             }
             proto_tree_add_item(lisp_data_tree,
-                    hf_lisp_data_nonce, tvb, offset, 3, FALSE);
+                    hf_lisp_data_nonce, tvb, offset, 3, ENC_BIG_ENDIAN);
         } else {
             if (flags&LISP_DATA_FLAG_V) {
                 proto_item *tiv;
                 proto_tree *lisp_data_mapver_tree;
 
                 tiv = proto_tree_add_item(lisp_data_tree,
-                        hf_lisp_data_mapver, tvb, offset, 3, FALSE);
+                        hf_lisp_data_mapver, tvb, offset, 3, ENC_BIG_ENDIAN);
 
                 lisp_data_mapver_tree = proto_item_add_subtree(tiv, ett_lisp_data_mapver);
 
                 proto_tree_add_item(lisp_data_mapver_tree,
-                        hf_lisp_data_srcmapver, tvb, offset, 3, FALSE);
+                        hf_lisp_data_srcmapver, tvb, offset, 3, ENC_BIG_ENDIAN);
                 proto_tree_add_item(lisp_data_mapver_tree,
-                        hf_lisp_data_dstmapver, tvb, offset, 3, FALSE);
+                        hf_lisp_data_dstmapver, tvb, offset, 3, ENC_BIG_ENDIAN);
             }
         }
         offset += 3;
 
         if (flags&LISP_DATA_FLAG_I) {
             proto_tree_add_item(lisp_data_tree,
-                    hf_lisp_data_iid, tvb, offset, 3, FALSE);
+                    hf_lisp_data_iid, tvb, offset, 3, ENC_BIG_ENDIAN);
             offset += 3;
             if (flags&LISP_DATA_FLAG_L) {
                 proto_tree_add_item(lisp_data_tree,
-                        hf_lisp_data_lsb8, tvb, offset, 1, FALSE);
+                        hf_lisp_data_lsb8, tvb, offset, 1, ENC_BIG_ENDIAN);
             }
             offset +=1;
         } else {
             if (flags&LISP_DATA_FLAG_L) {
                 proto_tree_add_item(lisp_data_tree,
-                        hf_lisp_data_lsb, tvb, offset, 4, FALSE);
+                        hf_lisp_data_lsb, tvb, offset, 4, ENC_BIG_ENDIAN);
                 offset += 4;
             }
         }
@@ -293,10 +293,10 @@ proto_reg_handoff_lisp_data(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

@@ -2,7 +2,7 @@
  * Routines for LISP Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp.c 36941 2011-04-28 18:18:30Z wmeier $
+ * $Id: packet-lisp.c 44491 2012-08-14 16:29:38Z mmann $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -274,7 +274,7 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint16 *addr_len)
                 iid = tvb_get_ntohl(tvb, offset + LCAF_HEADER_LEN);
                 afi = tvb_get_ntohs(tvb, offset + LCAF_HEADER_LEN + 4);
                 addr_str = get_addr_str(tvb, offset + LCAF_HEADER_LEN + 6, afi, &cur_len);
-                return g_strdup_printf("[%d] %s", iid, addr_str);
+                return ep_strdup_printf("[%d] %s", iid, addr_str);
             }
             return addr_str;
         default:
@@ -465,10 +465,10 @@ dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
 
     remaining -= 4;
 
-    proto_tree_add_item(tree, hf_lisp_lcaf_natt_msport, tvb, offset, 2, FALSE);
+    proto_tree_add_item(tree, hf_lisp_lcaf_natt_msport, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
     remaining -= 2;
-    proto_tree_add_item(tree, hf_lisp_lcaf_natt_etrport, tvb, offset, 2, FALSE);
+    proto_tree_add_item(tree, hf_lisp_lcaf_natt_etrport, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
     remaining -= 2;
 
@@ -558,7 +558,7 @@ dissect_lcaf_elp(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
  *  Type 9:  Multicast Info Type
  *  Type 10: Explicit Locator Path Type
  *  Type 11: Security Key Type
- *  
+ *
  */
 
 static int
@@ -578,23 +578,23 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
     lcaf_tree = proto_item_add_subtree(tir, ett_lisp_lcaf);
 
     /* Reserved bits (8 bits) */
-    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_res1, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_res1, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Flags (8 bits) */
-    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_flags, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Type (8 bits) */
-    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_type, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Reserved bits (8 bits) */
-    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_res2, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_res2, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Length (16 bits) */
-    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_length, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lcaf_tree, hf_lisp_lcaf_length, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     switch (lcaf_type) {
@@ -755,7 +755,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
             "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
             prefix, prefix_mask,
-            (ttl == 0xFFFFFFFF) ? "Unlimited" : g_strdup_printf("%d", ttl),
+            (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
             (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
     offset += addr_len;
 
@@ -768,10 +768,10 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     lisp_mapping_tree = proto_item_add_subtree(tir, ett_lisp_mapping);
 
     /* Reserved (4 bits) */
-    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res, tvb, mapver_offset, 2, FALSE);
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
 
     /* Map-Version Number (12 bits) */
-    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ver, tvb, mapver_offset, 2, FALSE);
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ver, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
 
     /* Locators */
     for(i=0; i < loc_cnt; i++) {
@@ -843,12 +843,12 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     pitr        = flags & (MAP_REQ_FLAG_p >> 8);
     smr_invoked = flags & (MAP_REQ_FLAG_s >> 8);
 
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_auth, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_mrp, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_probe, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_smr, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_pitr, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_smri, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_auth, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_mrp, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_probe, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_smr, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_pitr, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_smri, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (pitr)
         col_append_fstr(pinfo->cinfo, COL_INFO, " by P-ITR");
@@ -863,25 +863,25 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR-invoked)");
 
     /* Reserved bits (9 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_res, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_res, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     /* ITR record count (5 bits) */
     itr_rec_cnt = tvb_get_guint8(tvb, offset + 2) & 0x1F;
-    proto_tree_add_item(lisp_tree, hf_lisp_irc, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_irc, tvb, offset, 3, ENC_BIG_ENDIAN);
     offset += 3;
 
     /* Record count (8 bits) */
     rec_cnt = tvb_get_guint8(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Nonce (64 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
     /* Source EID AFI (16 bits) */
     src_eid_afi = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreq_srceid_afi, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreq_srceid_afi, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Source EID */
@@ -1046,7 +1046,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 static void
 dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 {
-    int i;
+    int       i;
     gint      offset  = 0;
     gboolean  probe   = FALSE;
     guint8    flags;
@@ -1056,23 +1056,23 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     /* Flags (2 bits) */
     flags = tvb_get_guint8(tvb, offset);
     probe = flags & (MAP_REP_FLAG_P >> 16);
-    proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_probe, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_enlr, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_probe, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_enlr, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (probe)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC-probe reply)");
 
     /* Reserved bits (18 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mrep_res, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mrep_res, tvb, offset, 3, ENC_BIG_ENDIAN);
     offset += 3;
 
     /* Record count (8 bits) */
     rec_cnt = tvb_get_guint8(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Nonce (64 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
     /* Reply records */
@@ -1136,50 +1136,50 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     gboolean  rtr     = FALSE;
 
     /* Flags (1 bit) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_pmr, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_pmr, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     /* Flags defined in LISP-SEC draft (1 bit) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_sec, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_sec, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     /* Flags defined in NAT Traversal draft (2 bits) */
     flags = tvb_get_ntohs(tvb, offset);
     xtrid = flags & (MAP_REG_FLAG_I >> 8);
     rtr   = flags & (MAP_REG_FLAG_R >> 8);
 
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_xtrid, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_rtr, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_xtrid, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_rtr, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (rtr)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (RTR)");
 
     /* Reserved bits (15 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_res, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_res, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     /* Flags (1 bit) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_wmn, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_wmn, tvb, offset, 3, ENC_BIG_ENDIAN);
     offset += 3;
 
     /* Record count (8 bits) */
     rec_cnt = tvb_get_guint8(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Nonce (64 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
     /* Key ID (16 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Authentication Data Length (16 bits) */
     authlen = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Authentication Data */
     /* XXX: need to check is there is still enough data in buffer */
-    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, ENC_NA);
     offset += authlen;
 
     for(i=0; i < rec_cnt; i++) {
@@ -1193,7 +1193,7 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
 
     /* If I bit is set, we have an xTR-ID field */
     if (xtrid) {
-        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, FALSE);
+        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, ENC_NA);
         offset += LISP_XTRID_LEN;
     }
 
@@ -1252,37 +1252,37 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
     xtrid = flags & (MAP_NOT_FLAG_I >> 8);
     rtr   = flags & (MAP_NOT_FLAG_R >> 8);
 
-    proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_xtrid, tvb, offset, 3, FALSE);
-    proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_rtr, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_xtrid, tvb, offset, 3, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_rtr, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (rtr)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (RTR)");
 
     /* Reserved bits (18 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_mnot_res, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_mnot_res, tvb, offset, 3, ENC_BIG_ENDIAN);
     offset += 3;
 
     /* Record count (8 bits) */
     rec_cnt = tvb_get_guint8(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Nonce (64 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
     /* Key ID (16 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Authentication Data Length (16 bits) */
     authlen = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Authentication Data */
     /* XXX: need to check is there is still enough data in buffer */
-    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, ENC_NA);
     offset += authlen;
 
     for(i=0; i < rec_cnt; i++) {
@@ -1296,24 +1296,24 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
 
     /* If I bit is set, we have an xTR-ID field */
     if (xtrid) {
-        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, FALSE);
+        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, ENC_BIG_ENDIAN);
         offset += LISP_XTRID_LEN;
     }
 
     /* If R bit is set, we have MS-RTR authentication data */
     if (rtr) {
         /* MS-RTR Key ID (16 bits) */
-        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_keyid, tvb, offset, 2, FALSE);
+        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_keyid, tvb, offset, 2, ENC_BIG_ENDIAN);
         offset += 2;
 
         /* MS-RTR Authentication Data Length (16 bits) */
         authlen = tvb_get_ntohs(tvb, offset);
-        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_authlen, tvb, offset, 2, FALSE);
+        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_authlen, tvb, offset, 2, ENC_BIG_ENDIAN);
         offset += 2;
 
         /* MS-RTR Authentication Data */
         /* XXX: need to check is there is still enough data in buffer */
-        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_auth, tvb, offset, authlen, FALSE);
+        proto_tree_add_item(lisp_tree, hf_lisp_msrtr_auth, tvb, offset, authlen, ENC_NA);
         offset += authlen;
     }
 
@@ -1373,36 +1373,36 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     else
         col_append_fstr(pinfo->cinfo, COL_INFO, "-Request");
 
-    proto_tree_add_item(lisp_tree, hf_lisp_info_r, tvb, offset, 3, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_r, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     /* Reserved bits (27 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_info_res1, tvb, offset, 4, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_res1, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     /* Nonce (64 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
     /* Key ID (16 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_keyid, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Authentication Data Length (16 bits) */
     authlen = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_authlen, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* Authentication Data */
     /* XXX: need to check is there is still enough data in buffer */
-    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_auth, tvb, offset, authlen, ENC_NA);
     offset += authlen;
 
     /* TTL */
-    proto_tree_add_item(lisp_tree, hf_lisp_info_ttl, tvb, offset, 4, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_ttl, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     /* Reserved bits (8 bits) */
-    proto_tree_add_item(lisp_tree, hf_lisp_info_res2, tvb, offset, 1, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_info_res2, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     prefix_mask = tvb_get_guint8(tvb, offset); offset += 1;
@@ -1424,7 +1424,7 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     /* Update the INFO column */
     col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d", prefix, prefix_mask);
 
-    tir = proto_tree_add_item(lisp_tree, hf_lisp_info_afi, tvb, offset, 2, FALSE);
+    tir = proto_tree_add_item(lisp_tree, hf_lisp_info_afi, tvb, offset, 2, ENC_BIG_ENDIAN);
     afi  = tvb_get_ntohs(tvb, offset); offset += 2;
 
     if (!reply) {
@@ -1466,7 +1466,7 @@ dissect_lisp_ecm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree
     tvbuff_t *next_tvb;
     guint8    ip_ver;
 
-    proto_tree_add_item(lisp_tree, hf_lisp_ecm_res, tvb, 0, 4, FALSE);
+    proto_tree_add_item(lisp_tree, hf_lisp_ecm_res, tvb, 0, 4, ENC_BIG_ENDIAN);
 
     /* Determine if encapsulated packet is IPv4 or IPv6, and call dissector */
     next_tvb = tvb_new_subset_remaining(tvb, LISP_ECM_HEADER_LEN);
@@ -1519,12 +1519,12 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         /* create display subtree for the protocol */
         ti = proto_tree_add_item(tree, proto_lisp, tvb, 0,
-                (type == LISP_ECM) ? LISP_ECM_HEADER_LEN : -1, FALSE);
+                (type == LISP_ECM) ? LISP_ECM_HEADER_LEN : -1, ENC_NA);
 
         lisp_tree = proto_item_add_subtree(ti, ett_lisp);
 
         proto_tree_add_item(lisp_tree,
-            hf_lisp_type, tvb, 0, 3, FALSE);
+            hf_lisp_type, tvb, 0, 3, ENC_BIG_ENDIAN);
     }
 
     /* Sub-dissectors are indirectly called by the following and thus
@@ -1770,10 +1770,10 @@ proto_reg_handoff_lisp(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */
