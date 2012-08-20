@@ -12,6 +12,9 @@ packet-lisp.c
    * Opaque Key (6)
    * Nonce Locator (8)
    * Multicast Info (9)
+   * Security Key (11)
+   * Source/Dest Key (12)
+* Implement support for LISP-SEC
 
 Other
 =====
