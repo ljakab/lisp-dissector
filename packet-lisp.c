@@ -890,7 +890,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     /* Source EID */
     switch (src_eid_afi) {
         case AFNUM_RESERVED:
-            proto_tree_add_text(lisp_tree, tvb, offset, 0, "(Source EID not present)");
+            proto_tree_add_text(lisp_tree, tvb, offset, 0, "Source EID: not set");
             break;
         case AFNUM_INET:
             proto_tree_add_ipv4(lisp_tree,
