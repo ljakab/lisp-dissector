@@ -31,6 +31,7 @@
 #include <epan/packet.h>
 #include <epan/afn.h>
 #include <epan/ipv6-utils.h>
+#include <epan/expert.h>
 
 #define INET_ADDRLEN        4
 #define INET6_ADDRLEN       16
@@ -42,6 +43,7 @@
  * format and protocol information.
  */
 
+#define LCAF_DRAFT_VERSION  10
 #define LISP_CONTROL_PORT   4342
 
 /* LISP Control Message types */
@@ -131,13 +133,11 @@ static int hf_lisp_mreq_srcitr = -1;
 static int hf_lisp_mreq_srcitrv6 = -1;
 
 /* Map-Reply fields */
-static int hf_lisp_mrep_flags = -1;
 static int hf_lisp_mrep_flags_probe = -1;
 static int hf_lisp_mrep_flags_enlr = -1;
 static int hf_lisp_mrep_res = -1;
 
 /* Map-Register fields */
-static int hf_lisp_mreg_flags = -1;
 static int hf_lisp_mreg_flags_pmr = -1;
 static int hf_lisp_mreg_flags_sec = -1;
 static int hf_lisp_mreg_flags_xtrid = -1;
@@ -219,7 +219,7 @@ const value_string lcaf_typevals[] = {
 
 
 static int
-dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset);
+dissect_lcaf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset);
 
 static int
 get_lcaf_data(tvbuff_t *tvb, gint offset, guint8 *lcaf_type, guint16 *len)
@@ -271,7 +271,7 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint16 *addr_len)
             return addr_str;
         case AFNUM_LCAF:
             get_lcaf_data(tvb, offset, &lcaf_type, addr_len);
-            addr_str = val_to_str(lcaf_type, lcaf_typevals, "Unknown (0x%02x)");
+            addr_str = val_to_str(lcaf_type, lcaf_typevals, "Unknown LCAF Type (%d)");
             if (lcaf_type == LCAF_IID) {
                 iid = tvb_get_ntohl(tvb, offset + LCAF_HEADER_LEN);
                 afi = tvb_get_ntohs(tvb, offset + LCAF_HEADER_LEN + 4);
@@ -285,7 +285,8 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint16 *addr_len)
 }
 
 static int
-dissect_lcaf_natt_rloc(tvbuff_t *tvb, proto_tree *tree, gint offset, const gchar *str, int idx)
+dissect_lcaf_natt_rloc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, const gchar *str, int idx)
 {
     guint16      addr_len = 0;
     guint16      rloc_afi;
@@ -295,7 +296,7 @@ dissect_lcaf_natt_rloc(tvbuff_t *tvb, proto_tree *tree, gint offset, const gchar
     rloc_str = get_addr_str(tvb, offset, rloc_afi, &addr_len);
 
     if (rloc_str == NULL) {
-        proto_tree_add_text(tree, tvb, offset - 2, 2,
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
                 "Unexpected RLOC AFI (%d), cannot decode", rloc_afi);
         return offset;
     }
@@ -310,7 +311,8 @@ dissect_lcaf_natt_rloc(tvbuff_t *tvb, proto_tree *tree, gint offset, const gchar
 }
 
 static int
-dissect_lcaf_elp_hop(tvbuff_t *tvb, proto_tree *tree, gint offset, int idx)
+dissect_lcaf_elp_hop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, int idx)
 {
     guint16      addr_len = 0;
     guint16      hop_afi;
@@ -322,7 +324,7 @@ dissect_lcaf_elp_hop(tvbuff_t *tvb, proto_tree *tree, gint offset, int idx)
     hop_str   = get_addr_str(tvb, offset, hop_afi, &addr_len);
 
     if (hop_str == NULL) {
-        proto_tree_add_text(tree, tvb, offset - 2, 2,
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
                 "Unexpected reencap hop AFI (%d), cannot decode", hop_afi);
         return offset;
     }
@@ -343,7 +345,8 @@ dissect_lcaf_elp_hop(tvbuff_t *tvb, proto_tree *tree, gint offset, int idx)
  */
 
 static int
-dissect_lcaf_afi_list(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
+dissect_lcaf_afi_list(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, guint16 length)
 {
     gint old_offset;
     gint remaining = length;
@@ -382,12 +385,12 @@ dissect_lcaf_afi_list(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 leng
                         "%d. %s", i, lcaf_str);
                 /* XXX need to check LCAF type */
                 lisp_elp_tree = proto_item_add_subtree(tir, ett_lisp_elp);
-                offset     = dissect_lcaf(tvb, lisp_elp_tree, offset);
+                offset     = dissect_lcaf(tvb, pinfo, lisp_elp_tree, offset);
                 remaining -= (offset - old_offset);
                 break;
             default:
-                proto_tree_add_text(tree, tvb, offset - 2, 2,
-                    "Unexpected AFI (%d), cannot decode", afi);
+                expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                        "Unexpected AFI (%d), cannot decode", afi);
                 return -1;
         }
         i++;
@@ -455,7 +458,8 @@ dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
  */
 
 static int
-dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
+dissect_lcaf_natt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, guint16 length)
 {
     gint         i;
     gint         len;
@@ -474,21 +478,21 @@ dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
     offset += 2;
     remaining -= 2;
 
-    len = dissect_lcaf_natt_rloc(tvb, tree, offset, global_etr, 0);
+    len = dissect_lcaf_natt_rloc(tvb, pinfo, tree, offset, global_etr, 0);
     offset += len;
     remaining -= len;
 
-    len = dissect_lcaf_natt_rloc(tvb, tree, offset, ms, 0);
+    len = dissect_lcaf_natt_rloc(tvb, pinfo, tree, offset, ms, 0);
     offset += len;
     remaining -= len;
 
-    len = dissect_lcaf_natt_rloc(tvb, tree, offset, private_etr, 0);
+    len = dissect_lcaf_natt_rloc(tvb, pinfo, tree, offset, private_etr, 0);
     offset += len;
     remaining -= len;
 
     i = 1;
     while (remaining > 0) {
-        len = dissect_lcaf_natt_rloc(tvb, tree, offset, rtr, i);
+        len = dissect_lcaf_natt_rloc(tvb, pinfo, tree, offset, rtr, i);
         offset += len;
         remaining -= len;
         i++;
@@ -520,14 +524,15 @@ dissect_lcaf_natt(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
  */
 
 static int
-dissect_lcaf_elp(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
+dissect_lcaf_elp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, guint16 length)
 {
     gint len;
     gint remaining = length;
     gint i = 1;
 
     while (remaining > 0) {
-        len = dissect_lcaf_elp_hop(tvb, tree, offset, i);
+        len = dissect_lcaf_elp_hop(tvb, pinfo, tree, offset, i);
         offset += len;
         remaining -= len;
         i++;
@@ -565,7 +570,7 @@ dissect_lcaf_elp(tvbuff_t *tvb, proto_tree *tree, gint offset, guint16 length)
  */
 
 static int
-dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
+dissect_lcaf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
 {
     guint8       lcaf_type;
     guint16      len;
@@ -575,8 +580,9 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
     lcaf_type = tvb_get_guint8(tvb, offset + 2);
     len       = tvb_get_ntohs(tvb, offset + 4);
 
-    tir = proto_tree_add_text(tree, tvb, offset, 6, "LCAF Header (Type: %s, Length: %d bytes)",
-            val_to_str(lcaf_type, lcaf_typevals, "Unknown (0x%02x)"),
+    tir = proto_tree_add_text(tree, tvb, offset, 6,
+            "LCAF Header (Type: %s, Length: %d bytes)",
+            val_to_str(lcaf_type, lcaf_typevals, "Unknown (%d)"),
             len);
     lcaf_tree = proto_item_add_subtree(tir, ett_lisp_lcaf);
 
@@ -604,26 +610,26 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
         case LCAF_NULL:
             break;
         case LCAF_AFI_LIST:
-            offset = dissect_lcaf_afi_list(tvb, tree, offset, len);
+            offset = dissect_lcaf_afi_list(tvb, pinfo, tree, offset, len);
             break;
         case LCAF_IID:
             offset = dissect_lcaf_iid(tvb, tree, offset);
             break;
         case LCAF_NATT:
-            offset = dissect_lcaf_natt(tvb, tree, offset, len);
+            offset = dissect_lcaf_natt(tvb, pinfo, tree, offset, len);
             break;
         case LCAF_ELP:
-            offset = dissect_lcaf_elp(tvb, tree, offset, len);
+            offset = dissect_lcaf_elp(tvb, pinfo, tree, offset, len);
             break;
         default:
             if (lcaf_type < 13)
-                proto_tree_add_text(tree, tvb, offset - 4, 1,
-                        "LCAF type %d (%s) not supported yet", lcaf_type,
-                        val_to_str(lcaf_type, lcaf_typevals, "Unknown"));
+                expert_add_undecoded_item(tvb, pinfo, tree, offset,
+                        len, PI_WARN);
             else
-                proto_tree_add_text(tree, tvb, offset - 4, 1,
-                        "LCAF type %d is not defined", lcaf_type);
-            return -1;
+                expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                        "LCAF type %d is not defined in draft-farinacci-lisp-lcaf-%d",
+                        lcaf_type, LCAF_DRAFT_VERSION);
+            return offset + len;
     }
     return offset;
 }
@@ -645,7 +651,7 @@ dissect_lcaf(tvbuff_t *tvb, proto_tree *tree, gint offset)
  */
 
 static int
-dissect_lisp_locator(tvbuff_t *tvb, proto_tree *lisp_mapping_tree)
+dissect_lisp_locator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_mapping_tree)
 {
     gint         offset   = 0;
     guint16      addr_len = 0;
@@ -669,7 +675,7 @@ dissect_lisp_locator(tvbuff_t *tvb, proto_tree *lisp_mapping_tree)
     locator = get_addr_str(tvb, offset, loc_afi, &addr_len);
 
     if (locator == NULL) {
-        proto_tree_add_text(lisp_mapping_tree, tvb, offset - 2, 2,
+        expert_add_info_format(pinfo, lisp_mapping_tree, PI_PROTOCOL, PI_ERROR,
                 "Unexpected locator AFI (%d), cannot decode", loc_afi);
         return offset;
     }
@@ -685,7 +691,7 @@ dissect_lisp_locator(tvbuff_t *tvb, proto_tree *lisp_mapping_tree)
     if (loc_afi == AFNUM_LCAF) {
         /* Create a sub-tree for the mapping */
         lisp_elp_tree = proto_item_add_subtree(tir, ett_lisp_elp);
-        offset = dissect_lcaf(tvb, lisp_elp_tree, offset);
+        offset = dissect_lcaf(tvb, pinfo, lisp_elp_tree, offset);
     } else {
         offset += addr_len;
     }
@@ -750,7 +756,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     prefix = get_addr_str(tvb, offset, prefix_afi, &addr_len);
 
     if (prefix == NULL) {
-        proto_tree_add_text(lisp_tree, tvb, 10, 2,
+        expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
                 "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
         return offset;
     }
@@ -782,7 +788,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
         int len = 0;
 
         loc_tvb = tvb_new_subset_remaining(tvb, offset);
-        len = dissect_lisp_locator(loc_tvb, lisp_mapping_tree);
+        len = dissect_lisp_locator(loc_tvb, pinfo, lisp_mapping_tree);
         offset += len;
     }
 
@@ -909,7 +915,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
             offset += addr_len;
             break;
         default:
-            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+            expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
                     "Unexpected Source EID AFI (%d), cannot decode", src_eid_afi);
             next_tvb = tvb_new_subset_remaining(tvb, offset);
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
@@ -948,7 +954,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 offset += INET6_ADDRLEN + 2;
                 break;
             default:
-                proto_tree_add_text(lisp_tree, tvb, offset, 2,
+                expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
                         "Unexpected ITR-RLOC-AFI (%d), cannot decode", itr_afi);
                 next_tvb = tvb_new_subset_remaining(tvb, offset);
                 call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
@@ -971,7 +977,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         prefix = get_addr_str(tvb, offset + 4, prefix_afi, &addr_len);
 
         if (prefix == NULL) {
-            proto_tree_add_text(lisp_tree, tvb, offset + 2, 2,
+            expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
                     "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
             next_tvb = tvb_new_subset_remaining(tvb, offset);
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
@@ -1413,7 +1419,7 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     prefix      = get_addr_str(tvb, offset, prefix_afi, &addr_len);
 
     if (prefix == NULL) {
-        proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+        expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
                 "Unexpected EID prefix AFI (%d), cannot decode", prefix_afi);
         next_tvb = tvb_new_subset_remaining(tvb, offset);
         call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
@@ -1432,17 +1438,17 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
 
     if (!reply) {
         if (afi != 0) {
-            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+            expert_add_info_format(pinfo, tir, PI_PROTOCOL, PI_ERROR,
                     "Expecting NULL AFI (0), found %d, incorrect packet!", afi);
         }
     } else {
         if (afi != AFNUM_LCAF) {
-            proto_tree_add_text(lisp_tree, tvb, offset - 2, 2,
+            expert_add_info_format(pinfo, tir, PI_PROTOCOL, PI_ERROR,
                     "Expecting LCAF AFI (%d), found %d, incorrect packet!",
                     AFNUM_LCAF, afi);
         } else {
             lisp_lcaf_tree = proto_item_add_subtree(tir, ett_lisp_lcaf);
-            offset = dissect_lcaf(tvb, lisp_tree, offset);
+            offset = dissect_lcaf(tvb, pinfo, lisp_tree, offset);
         }
     }
 
@@ -1511,10 +1517,10 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     if (encapsulated) {
         col_add_fstr(pinfo->cinfo, COL_INFO, "Encapsulated %s", val_to_str(type, lisp_typevals,
-                    "Unknown (0x%02x)"));
+                    "Unknown LISP Control Packet (%d)"));
     } else {
         col_add_str(pinfo->cinfo, COL_INFO, val_to_str(type, lisp_typevals,
-                    "Unknown (0x%02x)"));
+                    "Unknown LISP Control Packet (%d)"));
     }
 
     if (tree) {
@@ -1620,9 +1626,6 @@ proto_register_lisp(void)
         { &hf_lisp_mreq_srcitrv6,
             { "ITR-RLOC Address", "lisp.mreq.srcitrv6",
             FT_IPv6, BASE_NONE, NULL, 0x0, "Originating ITR RLOC Address", HFILL }},
-        { &hf_lisp_mrep_flags,
-            { "Flags", "lisp.mrep.flags",
-            FT_UINT8, BASE_HEX, NULL, 0x06, NULL, HFILL }},
         { &hf_lisp_mrep_flags_probe,
             { "P bit (Probe)", "lisp.mrep.flags.probe",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REP_FLAG_P, NULL, HFILL }},
@@ -1632,9 +1635,6 @@ proto_register_lisp(void)
         { &hf_lisp_mrep_res,
             { "Reserved bits", "lisp.mrep.res",
             FT_UINT24, BASE_HEX, NULL, MAP_REP_RESERVED, "Must be zero", HFILL }},
-        { &hf_lisp_mreg_flags,
-            { "Flags", "lisp.mreg.flags",
-            FT_UINT8, BASE_HEX, NULL, 0x0F, NULL, HFILL }},
         { &hf_lisp_mreg_flags_pmr,
             { "P bit (Proxy-Map-Reply)", "lisp.mreg.flags.pmr",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REG_FLAG_P, NULL, HFILL }},
