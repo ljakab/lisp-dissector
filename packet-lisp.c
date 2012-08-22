@@ -2,7 +2,7 @@
  * Routines for LISP Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp.c 44491 2012-08-14 16:29:38Z mmann $
+ * $Id: packet-lisp.c 44613 2012-08-22 16:37:41Z pascal $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -167,6 +167,9 @@ static int hf_lisp_lcaf_flags = -1;
 static int hf_lisp_lcaf_type = -1;
 static int hf_lisp_lcaf_res2 = -1;
 static int hf_lisp_lcaf_length = -1;
+
+/* LCAF IID fields */
+static int hf_lisp_lcaf_iid = -1;
 
 /* LCAF NATT fields */
 static int hf_lisp_lcaf_natt_msport = -1;
@@ -420,13 +423,10 @@ dissect_lcaf_afi_list(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static int
 dissect_lcaf_iid(tvbuff_t *tvb, proto_tree *tree, gint offset)
 {
-    guint32 iid;
-
     /* For now, we don't print reserved and length fields */
     offset += 3;
 
-    iid = tvb_get_ntohl(tvb, offset);
-    proto_tree_add_text(tree, tvb, offset, 4, "Instance ID: %d", iid);
+    proto_tree_add_item(tree, hf_lisp_lcaf_iid, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
     return offset;
 }
@@ -1305,7 +1305,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
 
     /* If I bit is set, we have an xTR-ID field */
     if (xtrid) {
-        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, ENC_BIG_ENDIAN);
+        proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, ENC_NA);
         offset += LISP_XTRID_LEN;
     }
 
@@ -1722,6 +1722,9 @@ proto_register_lisp(void)
         { &hf_lisp_lcaf_length,
             { "Length", "lisp.lcaf.length",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_iid,
+            { "Instance ID", "lisp.lcaf.iid",
+            FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_natt_msport,
             { "MS UDP Port Number", "lisp.lcaf.natt.msport",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
