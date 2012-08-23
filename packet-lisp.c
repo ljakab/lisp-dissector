@@ -1,8 +1,8 @@
 /* packet-lisp.c
- * Routines for LISP Control Message dissection
+ * Routines for Locator/ID Separation Protocol (LISP) Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp.c 44613 2012-08-22 16:37:41Z pascal $
+ * $Id: packet-lisp.c 44617 2012-08-22 21:01:46Z guy $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -321,6 +321,7 @@ dissect_lcaf_elp_hop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     guint16      hop_afi;
     guint16      hop_flags;
     const gchar *hop_str;
+    proto_item  *ti;
 
     hop_afi   = tvb_get_ntohs(tvb, offset); offset += 2;
     hop_flags = tvb_get_ntohs(tvb, offset); offset += 2;
@@ -333,10 +334,16 @@ dissect_lcaf_elp_hop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 
     if (idx) {
-        proto_tree_add_text(tree, tvb, offset - 4, addr_len + 4, "Reencap hop %d: %s", idx, hop_str);
+        ti = proto_tree_add_text(tree, tvb, offset - 4, addr_len + 4, "Reencap hop %d: %s", idx, hop_str);
     } else {
-        proto_tree_add_text(tree, tvb, offset - 4, addr_len + 4, "Reencap hop: %s", hop_str);
+        ti = proto_tree_add_text(tree, tvb, offset - 4, addr_len + 4, "Reencap hop: %s", hop_str);
     }
+    if (hop_flags & 0x04)
+        proto_item_append_text(ti, ", Lookup");
+    if (hop_flags & 0x02)
+        proto_item_append_text(ti, ", RLOC-Probe");
+    if (hop_flags & 0x01)
+        proto_item_append_text(ti, ", Strict");
 
     return addr_len + 4;
 }
@@ -1448,7 +1455,7 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
                     AFNUM_LCAF, afi);
         } else {
             lisp_lcaf_tree = proto_item_add_subtree(tir, ett_lisp_lcaf);
-            offset = dissect_lcaf(tvb, pinfo, lisp_tree, offset);
+            offset = dissect_lcaf(tvb, pinfo, lisp_lcaf_tree, offset);
         }
     }
 
