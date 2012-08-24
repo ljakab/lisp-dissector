@@ -49,8 +49,21 @@
 #define LISP_MAP_REPLY      2
 #define LISP_MAP_REGISTER   3
 #define LISP_MAP_NOTIFY     4
+#define LISP_MAP_REFERRAL   6
 #define LISP_INFO           7
 #define LISP_ECM            8
+
+#define LISP_ACT_NONE       0
+#define LISP_ACT_FWD_NATIVE 1
+#define LISP_ACT_MREQ       2
+#define LISP_ACT_DROP       3
+
+#define DDT_NODE_REF        0
+#define DDT_MS_REF          1
+#define DDT_MS_ACK          2
+#define DDT_MS_NREG         3
+#define DDT_DLGT_HOLE       4
+#define DDT_NAUTH           5
 
 #define LCAF_NULL           0
 #define LCAF_AFI_LIST       1
@@ -72,6 +85,7 @@
 
 #define LISP_MAP_ACT        0xE0
 #define LISP_MAP_AUTH       0x10
+#define REFERRAL_INCOMPLETE 0x08
 #define LOCAL_BIT_MASK      0x0004
 #define PROBE_BIT_MASK      0x0002
 #define REACH_BIT_MASK      0x0001
@@ -98,6 +112,8 @@
 #define MAP_NOT_FLAG_I      0x080000
 #define MAP_NOT_FLAG_R      0x040000
 #define MAP_NOT_RESERVED    0x03FFFF
+
+#define MAP_REF_RESERVED    0x0FFFFF
 
 #define INFO_FLAG_R         0x080000
 #define INFO_RESERVED       0x07FFFFFF
@@ -148,6 +164,10 @@ static int hf_lisp_mnot_flags_xtrid = -1;
 static int hf_lisp_mnot_flags_rtr = -1;
 static int hf_lisp_mnot_res = -1;
 
+/* Map-Referral fields */
+static int hf_lisp_mref_res = -1;
+static int hf_lisp_referral_sigcnt = -1;
+
 /* Info fields */
 static int hf_lisp_info_r = -1;
 static int hf_lisp_info_res1 = -1;
@@ -196,8 +216,27 @@ const value_string lisp_typevals[] = {
     { LISP_MAP_REPLY,       "Map-Reply" },
     { LISP_MAP_REGISTER,    "Map-Register" },
     { LISP_MAP_NOTIFY,      "Map-Notify" },
+    { LISP_MAP_REFERRAL,    "Map-Referral" },
     { LISP_INFO,            "Info" },
     { LISP_ECM,             "Encapsulated Control Message" },
+    { 0,                    NULL}
+};
+
+const value_string mapping_actions[] = {
+    { LISP_ACT_NONE,        "No-Action" },
+    { LISP_ACT_FWD_NATIVE,  "Natively-Forward" },
+    { LISP_ACT_MREQ,        "Send-Map-Request" },
+    { LISP_ACT_DROP,        "Drop" },
+    { 0,                    NULL}
+};
+
+const value_string referral_actions[] = {
+    { DDT_NODE_REF,         "Node Referral" },
+    { DDT_MS_REF,           "Map-Server Referral" },
+    { DDT_MS_ACK,           "Map-Server ACK" },
+    { DDT_MS_NREG,          "Map-Server Not Registered" },
+    { DDT_DLGT_HOLE,        "Delegation Hole" },
+    { DDT_NAUTH,            "Not Authoritative" },
     { 0,                    NULL}
 };
 
@@ -723,7 +762,8 @@ dissect_lisp_locator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_mapping
  */
 
 static int
-dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, guint8 rec_cnt)
+dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
+        guint8 rec_cnt, gboolean referral)
 {
     int          i;
     gint         offset        = 0;
@@ -739,14 +779,6 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     proto_item  *tir;
     proto_tree  *lisp_mapping_tree;
 
-    const char *lisp_actions[] = {
-        "No-Action",
-        "Natively-Forward",
-        "Send-Map-Request",
-        "Drop",
-        "Illegal action value"
-    };
-
     ttl           = tvb_get_ntohl(tvb, offset);  offset += 4;
     loc_cnt       = tvb_get_guint8(tvb, offset); offset += 1;
     prefix_mask   = tvb_get_guint8(tvb, offset); offset += 1;
@@ -756,7 +788,6 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
 
     act = flags & LISP_MAP_ACT;
     act >>= 5;
-    if (act > 3) act = 4;
 
     prefix = get_addr_str(tvb, offset, prefix_afi, &addr_len);
 
@@ -766,12 +797,23 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
         return offset;
     }
 
-    tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
-            "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
-            prefix, prefix_mask,
-            (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
-            (flags&LISP_MAP_AUTH) ? "" : "Not ", lisp_actions[act]);
-    offset += addr_len;
+    if (referral) {
+        tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
+                "EID prefix: %s/%d, TTL: %s, %s%s",
+                prefix, prefix_mask,
+                (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
+                val_to_str(act, referral_actions, "Invalid action code (%d)"),
+                (flags&REFERRAL_INCOMPLETE) ? " (Incomplete)" : "");
+        offset += addr_len;
+    } else {
+        tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
+                "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
+                prefix, prefix_mask,
+                (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
+                (flags&LISP_MAP_AUTH) ? "" : "Not ",
+                val_to_str(act, mapping_actions, "Invalid action code (%d)"));
+        offset += addr_len;
+    }
 
     /* Update the INFO column if there is only one record */
     if (rec_cnt == 1)
@@ -781,8 +823,13 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree, g
     /* Create a sub-tree for the mapping */
     lisp_mapping_tree = proto_item_add_subtree(tir, ett_lisp_mapping);
 
-    /* Reserved (4 bits) */
-    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
+    if (referral) {
+        /* SigCnt (4 bits) */
+        proto_tree_add_item(lisp_mapping_tree, hf_lisp_referral_sigcnt, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
+    } else {
+        /* Reserved (4 bits) */
+        proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
+    }
 
     /* Map-Version Number (12 bits) */
     proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ver, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
@@ -1019,7 +1066,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         lisp_mr_tree = proto_item_add_subtree(tim, ett_lisp_mr);
 
         rep_tvb = tvb_new_subset_remaining(tvb, offset);
-        len = dissect_lisp_mapping(rep_tvb, pinfo, lisp_mr_tree, 0);
+        len = dissect_lisp_mapping(rep_tvb, pinfo, lisp_mr_tree, 0, FALSE);
         offset += len;
     }
 
@@ -1095,7 +1142,7 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
         int len = 0;
 
         rec_tvb = tvb_new_subset_remaining(tvb, offset);
-        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt, FALSE);
         offset += len;
     }
 
@@ -1201,7 +1248,7 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
         int len = 0;
 
         rec_tvb = tvb_new_subset_remaining(tvb, offset);
-        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt, FALSE);
         offset += len;
     }
 
@@ -1304,7 +1351,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
         int len = 0;
 
         rec_tvb = tvb_new_subset_remaining(tvb, offset);
-        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt, FALSE);
         offset += len;
     }
 
@@ -1329,6 +1376,70 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
         /* XXX: need to check is there is still enough data in buffer */
         proto_tree_add_item(lisp_tree, hf_lisp_msrtr_auth, tvb, offset, authlen, ENC_NA);
         offset += authlen;
+    }
+
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
+    call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+}
+
+/*
+ *  Dissector code for Map-Referral type control packets
+ *
+ *        0                   1                   2                   3
+ *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |Type=6 |                Reserved               | Record Count  |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                         Nonce . . .                           |
+ *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       |                         . . . Nonce                           |
+ *   +-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |   |                          Record  TTL                          |
+ *   |   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   R   | Referral Count| EID mask-len  | ACT |A|I|     Reserved        |
+ *   e   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   c   |SigCnt |   Map Version Number  |            EID-AFI            |
+ *   o   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   r   |                          EID-prefix ...                       |
+ *   d   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |  /|    Priority   |    Weight     |  M Priority   |   M Weight    |
+ *   | L +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   | o |        Unused Flags         |R|         Loc/LCAF-AFI          |
+ *   | c +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |  \|                             Locator ...                       |
+ *   +-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
+
+static void
+dissect_lisp_map_referral(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
+{
+    int       i;
+    gint      offset  = 0;
+    guint8    rec_cnt = 0;
+    tvbuff_t *next_tvb;
+
+    /* Reserved bits (20 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_mref_res, tvb, offset, 3, ENC_BIG_ENDIAN);
+    offset += 3;
+
+    /* Record count (8 bits) */
+    rec_cnt = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(lisp_tree, hf_lisp_records, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    /* Nonce (64 bits) */
+    proto_tree_add_item(lisp_tree, hf_lisp_nonce, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    /* Referral records */
+    for(i=0; i < rec_cnt; i++) {
+        tvbuff_t *rec_tvb;
+        int len = 0;
+
+        rec_tvb = tvb_new_subset_remaining(tvb, offset);
+        len = dissect_lisp_mapping(rec_tvb, pinfo, lisp_tree, rec_cnt, TRUE);
+        offset += len;
     }
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
@@ -1557,6 +1668,9 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     case LISP_MAP_NOTIFY:
         dissect_lisp_map_notify(tvb, pinfo, lisp_tree);
         break;
+    case LISP_MAP_REFERRAL:
+        dissect_lisp_map_referral(tvb, pinfo, lisp_tree);
+        break;
     case LISP_INFO:
         dissect_lisp_info(tvb, pinfo, lisp_tree);
         break;
@@ -1658,6 +1772,9 @@ proto_register_lisp(void)
         { &hf_lisp_mreg_res,
             { "Reserved bits", "lisp.mreg.res",
             FT_UINT24, BASE_HEX, NULL, MAP_REG_RESERVED, "Must be zero", HFILL }},
+        { &hf_lisp_mref_res,
+            { "Reserved bits", "lisp.mref.res",
+            FT_UINT24, BASE_HEX, NULL, MAP_REF_RESERVED, "Must be zero", HFILL }},
         { &hf_lisp_keyid,
             { "Key ID", "lisp.keyid",
             FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -1709,6 +1826,9 @@ proto_register_lisp(void)
         { &hf_lisp_mapping_ver,
             { "Mapping Version", "lisp.mapping.ver",
             FT_UINT16, BASE_DEC, NULL, 0x0FFF, NULL, HFILL }},
+        { &hf_lisp_referral_sigcnt,
+            { "SigCnt", "lisp.referral.sigcnt",
+            FT_UINT16, BASE_DEC, NULL, 0xF000, "Signature Count", HFILL }},
         { &hf_lisp_ecm_res,
             { "Reserved bits", "lisp.ecm_res",
             FT_UINT32, BASE_HEX, NULL, 0x0FFFFFFF, NULL, HFILL }},
