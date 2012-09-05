@@ -5,6 +5,8 @@ packet-lisp.c
 * Actually show the encapsulation header when present
 * Dissect locator sets in detail, highlighting individual fields in the hex
   data
+* Dissect maping records in detail, highlighting individual fields in the hex
+  data
 * Implement support for the following LCAF types:
    * AS Number (3)
    * Application Data (4)
@@ -14,8 +16,20 @@ packet-lisp.c
    * Multicast Info (9)
    * Security Key (11)
    * Source/Dest Key (12)
+* Improve LCAF parsing robustness, by ignoring length when dissecting known
+  types
+* Jesper proposed a change in xTR-ID, extension with 64 bit site ID.
+  Implement, once documented
 * Implement support for LISP-SEC
+
+packet-lisp-data.c
+==================
+* Solve upstream buildbot issues:
+  http://www.wireshark.org/download/automated/analysis/
+* Use expert_add_info_format() for error messages
+* Check how control packets inside data packets are handled
 
 Other
 =====
-* Create script to download latest stable and generate patch
+* Publish my work as a branch on a clone of the upstream experimental git
+  repo
