@@ -33,3 +33,4 @@ Other
 =====
 * Publish my work as a branch on a clone of the upstream experimental git
   repo
+* Dino: in the Protocol column, add "/LISP" for data encapsulated packets, when an upper layer protocol dissecto decodes the inner data packet. For example, today a LISP encapsulated ICMP packet is shown simply as ICMP, and it is impossible to know at a glance if it a tunneled packet or not. This however requires hacking the main Wireshark code, not the LISP dissector code. The wreshark developers provided a workaround, adding a new column that shows the whole protocol stack is already possible today. But that is too verbose.
