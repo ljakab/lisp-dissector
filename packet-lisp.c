@@ -2,7 +2,7 @@
  * Routines for Locator/ID Separation Protocol (LISP) Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp.c 44617 2012-08-22 21:01:46Z guy $
+ * $Id: packet-lisp.c 45017 2012-09-20 02:03:38Z morriss $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -24,9 +24,7 @@
  * USA.
  */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <epan/packet.h>
 #include <epan/afn.h>
@@ -1508,7 +1506,7 @@ dissect_lisp_ecm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree
  */
 
 static int
-dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     guint8 type;
 

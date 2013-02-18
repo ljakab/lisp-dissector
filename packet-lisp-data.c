@@ -2,7 +2,7 @@
  * Routines for LISP Data Message dissection
  * Copyright 2010, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp-data.c 41724 2012-03-21 18:20:44Z wmeier $
+ * $Id: packet-lisp-data.c 45017 2012-09-20 02:03:38Z morriss $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -24,9 +24,7 @@
  * USA.
  */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <glib.h>
 
@@ -80,7 +78,7 @@ static dissector_handle_t data_handle;
 
 /* Code to actually dissect the packets */
 static int
-dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     gint        offset = 0;
     guint8      flags;
