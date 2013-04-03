@@ -84,9 +84,9 @@
 #define LISP_ECM_HEADER_LEN 4
 #define LISP_XTRID_LEN      16
 
-#define LISP_MAP_ACT        0xE0
-#define LISP_MAP_AUTH       0x10
-#define REFERRAL_INCOMPLETE 0x08
+#define LISP_MAP_ACT        0xE000
+#define LISP_MAP_AUTH       0x1000
+#define REFERRAL_INCOMPLETE 0x0800
 #define LOCAL_BIT_MASK      0x0004
 #define PROBE_BIT_MASK      0x0002
 #define REACH_BIT_MASK      0x0001
@@ -173,6 +173,7 @@ static int hf_lisp_mnot_res = -1;
 /* Map-Referral fields */
 static int hf_lisp_mref_res = -1;
 static int hf_lisp_referral_sigcnt = -1;
+static int hf_lisp_referral_incomplete = -1;
 
 /* Info fields */
 static int hf_lisp_info_r = -1;
@@ -182,8 +183,15 @@ static int hf_lisp_info_res2 = -1;
 static int hf_lisp_info_afi = -1;
 
 /* Mapping record fields */
-static int hf_lisp_mapping_res = -1;
+static int hf_lisp_mapping_ttl = -1;
+static int hf_lisp_mapping_loccnt = -1;
+static int hf_lisp_mapping_eid_masklen = -1;
+static int hf_lisp_mapping_act = -1;
+static int hf_lisp_mapping_auth = -1;
+static int hf_lisp_mapping_res1 = -1;
+static int hf_lisp_mapping_res2 = -1;
 static int hf_lisp_mapping_ver = -1;
+static int hf_lisp_mapping_eid_afi = -1;
 
 /* LCAF fields */
 static int hf_lisp_lcaf_res1 = -1;
@@ -776,13 +784,13 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
 {
     int          i;
     gint         offset        = 0;
-    gint         mapver_offset = 0;
+    gint         offset_rec    = 0;
     guint32      ttl;
     guint16      addr_len      = 0;
     guint8       loc_cnt;
     guint8       prefix_mask;
-    guint8       flags;
-    guint8       act;
+    guint16      flags;
+    guint16      act;
     guint16      prefix_afi;
     const gchar *prefix;
     proto_item  *tir;
@@ -791,12 +799,11 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
     ttl           = tvb_get_ntohl(tvb, offset);  offset += 4;
     loc_cnt       = tvb_get_guint8(tvb, offset); offset += 1;
     prefix_mask   = tvb_get_guint8(tvb, offset); offset += 1;
-    flags         = tvb_get_guint8(tvb, offset); offset += 2;
-    mapver_offset = offset;                      offset += 2;
+    flags         = tvb_get_ntohs(tvb, offset);  offset += 4;
     prefix_afi    = tvb_get_ntohs(tvb, offset);  offset += 2;
 
     act = flags & LISP_MAP_ACT;
-    act >>= 5;
+    act >>= 13;
 
     prefix = get_addr_str(tvb, offset, prefix_afi, &addr_len);
 
@@ -806,23 +813,14 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
         return offset;
     }
 
-    if (referral) {
-        tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
-                "EID prefix: %s/%d, TTL: %s, %s%s",
-                prefix, prefix_mask,
-                (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
-                val_to_str(act, referral_actions, "Invalid action code (%d)"),
-                (flags&REFERRAL_INCOMPLETE) ? " (Incomplete)" : "");
-        offset += addr_len;
-    } else {
-        tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
-                "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s",
-                prefix, prefix_mask,
-                (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
-                (flags&LISP_MAP_AUTH) ? "" : "Not ",
-                val_to_str(act, mapping_actions, "Invalid action code (%d)"));
-        offset += addr_len;
-    }
+    tir = proto_tree_add_text(lisp_tree, tvb, 0, 12 + addr_len,
+            "EID prefix: %s/%d, TTL: %s, %sAuthoritative, %s%s",
+            prefix, prefix_mask,
+            (ttl == 0xFFFFFFFF) ? "Unlimited" : ep_strdup_printf("%d", ttl),
+            (flags&LISP_MAP_AUTH) ? "" : "Not ",
+            val_to_str(act, (referral) ? referral_actions : mapping_actions, "Invalid action code (%d)"),
+            (referral&&(flags&REFERRAL_INCOMPLETE)) ? " (Incomplete)" : "");
+    offset += addr_len;
 
     /* Update the INFO column if there is only one record */
     if (rec_cnt == 1)
@@ -832,16 +830,51 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
     /* Create a sub-tree for the mapping */
     lisp_mapping_tree = proto_item_add_subtree(tir, ett_lisp_mapping);
 
+    /* TTL (32 bits) */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ttl, tvb, offset_rec, 4, ENC_BIG_ENDIAN);
+    offset_rec += 4;
+
+    /* Locator count (8 bits) */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_loccnt, tvb, offset_rec, 1, ENC_BIG_ENDIAN);
+    offset_rec += 1;
+
+    /* EID mask length (8 bits) */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_eid_masklen, tvb, offset_rec, 1, ENC_BIG_ENDIAN);
+    offset_rec += 1;
+
+    /* Action (3 bits) */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_act, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
+
+    /* Authoritative bit */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_auth, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
+
+    /* Incomplete bit in Map-Referrals */
+    if (referral)
+        proto_tree_add_item(lisp_mapping_tree, hf_lisp_referral_incomplete, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
+
+    /* Reserved (11 bits) */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res1, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
+    offset_rec += 2;
+
     if (referral) {
         /* SigCnt (4 bits) */
-        proto_tree_add_item(lisp_mapping_tree, hf_lisp_referral_sigcnt, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(lisp_mapping_tree, hf_lisp_referral_sigcnt, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
     } else {
         /* Reserved (4 bits) */
-        proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_res2, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
     }
 
     /* Map-Version Number (12 bits) */
-    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ver, tvb, mapver_offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_ver, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
+    offset_rec += 2;
+
+    /* EID prefix AFI (16 bits) */
+    proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_eid_afi, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
+    offset_rec += 2;
+
+    /* EID */
+    proto_tree_add_text(lisp_mapping_tree, tvb, offset_rec, offset - offset_rec,
+            "EID prefix: %s", prefix);
 
     /* Locators */
     for(i=0; i < loc_cnt; i++) {
@@ -1847,8 +1880,29 @@ proto_register_lisp(void)
         { &hf_lisp_info_afi,
             { "AFI", "lisp.info.afi",
             FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, "Address Family Indicator", HFILL }},
-        { &hf_lisp_mapping_res,
-            { "Reserved", "lisp.mapping.res",
+        { &hf_lisp_mapping_ttl,
+            { "Record TTL", "lisp.mapping.ttl",
+            FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mapping_loccnt,
+            { "Locator Count", "lisp.mapping.loccnt",
+            FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mapping_eid_masklen,
+            { "EID mask length", "lisp.mapping.eid.masklen",
+            FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mapping_act,
+            { "Action", "lisp.mapping.act",
+            FT_UINT16, BASE_DEC, VALS(mapping_actions), 0xE000, NULL, HFILL }},
+        { &hf_lisp_mapping_auth,
+            { "Authoritative bit", "lisp.mapping.auth",
+            FT_BOOLEAN, 16, TFS(&tfs_set_notset), LISP_MAP_AUTH, NULL, HFILL }},
+        { &hf_lisp_referral_incomplete,
+            { "Incomplete", "lisp.referral.incomplete",
+            FT_BOOLEAN, 16, TFS(&tfs_set_notset), REFERRAL_INCOMPLETE, NULL, HFILL }},
+        { &hf_lisp_mapping_res1,
+            { "Reserved", "lisp.mapping.res1",
+            FT_UINT16, BASE_HEX, NULL, 0x07FF, NULL, HFILL }},
+        { &hf_lisp_mapping_res2,
+            { "Reserved", "lisp.mapping.res2",
             FT_UINT16, BASE_HEX, NULL, 0xF000, NULL, HFILL }},
         { &hf_lisp_mapping_ver,
             { "Mapping Version", "lisp.mapping.ver",
@@ -1856,6 +1910,9 @@ proto_register_lisp(void)
         { &hf_lisp_referral_sigcnt,
             { "SigCnt", "lisp.referral.sigcnt",
             FT_UINT16, BASE_DEC, NULL, 0xF000, "Signature Count", HFILL }},
+        { &hf_lisp_mapping_eid_afi,
+            { "EID prefix AFI", "lisp.mapping.eid.afi",
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, NULL, HFILL }},
         { &hf_lisp_ecm_flags_sec,
             { "S bit (LISP-SEC capable)", "lisp.ecm.flags.sec",
             FT_BOOLEAN, 32, TFS(&tfs_set_notset), ECM_FLAG_S, NULL, HFILL }},
