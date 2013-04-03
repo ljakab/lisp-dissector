@@ -35,9 +35,10 @@
 #define INET6_ADDRLEN       16
 
 /*
- * See draft-ietf-lisp-23 "Locator/ID Separation Protocol (LISP)",
- * draft-farinacci-lisp-lcaf-10 "LISP Canonical Address Format (LCAF)", and
- * draft-ermagan-lisp-nat-traversal-01 "NAT traversal for LISP" for packet
+ * See RFC 6830 "Locator/ID Separation Protocol (LISP)",
+ * draft-ietf-lisp-lcaf-02 "LISP Canonical Address Format (LCAF)",
+ * draft-ietf-lisp-sec-04 "LISP-Security (LISP-SEC)", and
+ * draft-ermagan-lisp-nat-traversal-03 "NAT traversal for LISP" for packet
  * format and protocol information.
  */
 
@@ -100,7 +101,8 @@
 
 #define MAP_REP_FLAG_P      0x080000
 #define MAP_REP_FLAG_E      0x040000
-#define MAP_REP_RESERVED    0x03FFFF
+#define MAP_REP_FLAG_S      0x020000
+#define MAP_REP_RESERVED    0x01FFFF
 
 #define MAP_REG_FLAG_P      0x080000
 #define MAP_REG_FLAG_S      0x040000
@@ -117,6 +119,9 @@
 
 #define INFO_FLAG_R         0x080000
 #define INFO_RESERVED       0x07FFFFFF
+
+#define ECM_FLAG_S          0x08000000
+#define ECM_FLAG_D          0x04000000
 
 /* Initialize the protocol and registered fields */
 static int proto_lisp = -1;
@@ -149,6 +154,7 @@ static int hf_lisp_mreq_srcitrv6 = -1;
 /* Map-Reply fields */
 static int hf_lisp_mrep_flags_probe = -1;
 static int hf_lisp_mrep_flags_enlr = -1;
+static int hf_lisp_mrep_flags_sec = -1;
 static int hf_lisp_mrep_res = -1;
 
 /* Map-Register fields */
@@ -194,6 +200,8 @@ static int hf_lisp_lcaf_natt_msport = -1;
 static int hf_lisp_lcaf_natt_etrport = -1;
 
 /* Encapsulated Control Message fields */
+static int hf_lisp_ecm_flags_sec = -1;
+static int hf_lisp_ecm_flags_ddt = -1;
 static int hf_lisp_ecm_res = -1;
 
 /* Initialize the subtree pointers */
@@ -1081,7 +1089,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
  *        0                   1                   2                   3
  *        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *       |Type=2 |P|E|            Reserved               | Record Count  |
+ *       |Type=2 |P|E|S|           Reserved              | Record Count  |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *       |                         Nonce . . .                           |
  *       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -1119,6 +1127,9 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     probe = flags & (MAP_REP_FLAG_P >> 16);
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_probe, tvb, offset, 3, ENC_BIG_ENDIAN);
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_enlr, tvb, offset, 3, ENC_BIG_ENDIAN);
+
+    /* Flags defined in LISP-SEC draft (1 bit) */
+    proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_sec, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (probe)
         col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC-probe reply)");
@@ -1577,7 +1588,7 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
  * Dissector code for Encapsulated Control Message type packets
  *
  *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |Type=8 |                   Reserved                            |
+ *  |Type=8 |S|D|                 Reserved                          |
  *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *  |                       IPv4 or IPv6 Header                     |
  *  |                  (uses RLOC or EID addresses)                 |
@@ -1591,6 +1602,8 @@ dissect_lisp_ecm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree
     tvbuff_t *next_tvb;
     guint8    ip_ver;
 
+    proto_tree_add_item(lisp_tree, hf_lisp_ecm_flags_sec, tvb, 0, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_tree, hf_lisp_ecm_flags_ddt, tvb, 0, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item(lisp_tree, hf_lisp_ecm_res, tvb, 0, 4, ENC_BIG_ENDIAN);
 
     /* Determine if encapsulated packet is IPv4 or IPv6, and call dissector */
@@ -1751,6 +1764,9 @@ proto_register_lisp(void)
         { &hf_lisp_mrep_flags_enlr,
             { "E bit (Echo-Nonce locator reachability algorithm enabled)", "lisp.mrep.flags.enlr",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REP_FLAG_E, NULL, HFILL }},
+        { &hf_lisp_mrep_flags_sec,
+            { "S bit (LISP-SEC capable)", "lisp.mrep.flags.sec",
+            FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REP_FLAG_S, NULL, HFILL }},
         { &hf_lisp_mrep_res,
             { "Reserved bits", "lisp.mrep.res",
             FT_UINT24, BASE_HEX, NULL, MAP_REP_RESERVED, "Must be zero", HFILL }},
@@ -1829,9 +1845,15 @@ proto_register_lisp(void)
         { &hf_lisp_referral_sigcnt,
             { "SigCnt", "lisp.referral.sigcnt",
             FT_UINT16, BASE_DEC, NULL, 0xF000, "Signature Count", HFILL }},
+        { &hf_lisp_ecm_flags_sec,
+            { "S bit (LISP-SEC capable)", "lisp.ecm.flags.sec",
+            FT_BOOLEAN, 32, TFS(&tfs_set_notset), ECM_FLAG_S, NULL, HFILL }},
+        { &hf_lisp_ecm_flags_ddt,
+            { "D bit (DDT-originated)", "lisp.ecm.flags.ddt",
+            FT_BOOLEAN, 32, TFS(&tfs_set_notset), ECM_FLAG_D, NULL, HFILL }},
         { &hf_lisp_ecm_res,
-            { "Reserved bits", "lisp.ecm_res",
-            FT_UINT32, BASE_HEX, NULL, 0x0FFFFFFF, NULL, HFILL }},
+            { "Reserved bits", "lisp.ecm.res",
+            FT_UINT32, BASE_HEX, NULL, 0x03FFFFFF, NULL, HFILL }},
         { &hf_lisp_lcaf_res1,
             { "Reserved bits", "lisp.lcaf.res1",
             FT_UINT8, BASE_HEX, NULL, 0xFF, NULL, HFILL }},
