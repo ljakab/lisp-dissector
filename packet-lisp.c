@@ -218,6 +218,7 @@ static dissector_handle_t ipv6_handle;
 static dissector_handle_t data_handle;
 
 static gboolean encapsulated = FALSE;
+static gboolean ddt_originated = FALSE;
 
 const value_string lisp_typevals[] = {
     { LISP_MAP_REQUEST,     "Map-Request" },
@@ -920,16 +921,16 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_flags_smri, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (pitr)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " by P-ITR");
+        col_append_str(pinfo->cinfo, COL_INFO, " by P-ITR");
 
     if (smr)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR)");
+        col_append_str(pinfo->cinfo, COL_INFO, " (SMR)");
 
     if (probe)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC-probe)");
+        col_append_str(pinfo->cinfo, COL_INFO, " (RLOC-probe)");
 
     if (smr_invoked)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (SMR-invoked)");
+        col_append_str(pinfo->cinfo, COL_INFO, " (SMR-invoked)");
 
     /* Reserved bits (9 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreq_res, tvb, offset, 3, ENC_BIG_ENDIAN);
@@ -1132,7 +1133,7 @@ dissect_lisp_map_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_flags_sec, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (probe)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (RLOC-probe reply)");
+        col_append_str(pinfo->cinfo, COL_INFO, " (RLOC-probe reply)");
 
     /* Reserved bits (18 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mrep_res, tvb, offset, 3, ENC_BIG_ENDIAN);
@@ -1222,7 +1223,7 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_flags_rtr, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (rtr)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (RTR)");
+        col_append_str(pinfo->cinfo, COL_INFO, " (RTR)");
 
     /* Reserved bits (15 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mreg_res, tvb, offset, 3, ENC_BIG_ENDIAN);
@@ -1328,7 +1329,7 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
     proto_tree_add_item(lisp_tree, hf_lisp_mnot_flags_rtr, tvb, offset, 3, ENC_BIG_ENDIAN);
 
     if (rtr)
-        col_append_fstr(pinfo->cinfo, COL_INFO, " (RTR)");
+        col_append_str(pinfo->cinfo, COL_INFO, " (RTR)");
 
     /* Reserved bits (18 bits) */
     proto_tree_add_item(lisp_tree, hf_lisp_mnot_res, tvb, offset, 3, ENC_BIG_ENDIAN);
@@ -1505,9 +1506,9 @@ dissect_lisp_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree)
     reply = flags & (INFO_FLAG_R >> 16);
 
     if (reply)
-        col_append_fstr(pinfo->cinfo, COL_INFO, "-Reply");
+        col_append_str(pinfo->cinfo, COL_INFO, "-Reply");
     else
-        col_append_fstr(pinfo->cinfo, COL_INFO, "-Request");
+        col_append_str(pinfo->cinfo, COL_INFO, "-Request");
 
     proto_tree_add_item(lisp_tree, hf_lisp_info_r, tvb, offset, 3, ENC_BIG_ENDIAN);
 
@@ -1600,7 +1601,12 @@ static void
 dissect_lisp_ecm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree *lisp_tree)
 {
     tvbuff_t *next_tvb;
+    guint8    flags;
     guint8    ip_ver;
+
+    /* Flags (2 bits) */
+    flags = tvb_get_guint8(tvb, 0);
+    ddt_originated = flags & (ECM_FLAG_D >> 24);
 
     proto_tree_add_item(lisp_tree, hf_lisp_ecm_flags_sec, tvb, 0, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item(lisp_tree, hf_lisp_ecm_flags_ddt, tvb, 0, 4, ENC_BIG_ENDIAN);
@@ -1650,6 +1656,11 @@ dissect_lisp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     } else {
         col_add_str(pinfo->cinfo, COL_INFO, val_to_str(type, lisp_typevals,
                     "Unknown LISP Control Packet (%d)"));
+    }
+
+    if (ddt_originated) {
+        col_append_str(pinfo->cinfo, COL_INFO, " (DDT-originated)");
+        ddt_originated = FALSE;
     }
 
     if (tree) {
