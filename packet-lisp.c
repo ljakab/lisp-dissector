@@ -192,6 +192,7 @@ static int hf_lisp_mapping_res1 = -1;
 static int hf_lisp_mapping_res2 = -1;
 static int hf_lisp_mapping_ver = -1;
 static int hf_lisp_mapping_eid_afi = -1;
+static int hf_lisp_mapping_eid = -1;
 
 /* LCAF fields */
 static int hf_lisp_lcaf_res1 = -1;
@@ -873,8 +874,7 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
     offset_rec += 2;
 
     /* EID */
-    proto_tree_add_text(lisp_mapping_tree, tvb, offset_rec, offset - offset_rec,
-            "EID prefix: %s", prefix);
+    proto_tree_add_string(lisp_mapping_tree, hf_lisp_mapping_eid, tvb, offset_rec, offset - offset_rec, prefix);
 
     /* Locators */
     for(i=0; i < loc_cnt; i++) {
@@ -1908,11 +1908,14 @@ proto_register_lisp(void)
             { "Mapping Version", "lisp.mapping.ver",
             FT_UINT16, BASE_DEC, NULL, 0x0FFF, NULL, HFILL }},
         { &hf_lisp_referral_sigcnt,
-            { "SigCnt", "lisp.referral.sigcnt",
-            FT_UINT16, BASE_DEC, NULL, 0xF000, "Signature Count", HFILL }},
+            { "Signature Count", "lisp.referral.sigcnt",
+            FT_UINT16, BASE_DEC, NULL, 0xF000, NULL, HFILL }},
         { &hf_lisp_mapping_eid_afi,
             { "EID prefix AFI", "lisp.mapping.eid.afi",
             FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, NULL, HFILL }},
+        { &hf_lisp_mapping_eid,
+            { "EID prefix", "lisp.mapping.eid",
+            FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_ecm_flags_sec,
             { "S bit (LISP-SEC capable)", "lisp.ecm.flags.sec",
             FT_BOOLEAN, 32, TFS(&tfs_set_notset), ECM_FLAG_S, NULL, HFILL }},
