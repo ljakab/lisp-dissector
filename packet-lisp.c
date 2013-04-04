@@ -1403,10 +1403,11 @@ dissect_lisp_map_notify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree
         offset += len;
     }
 
-    /* If I bit is set, we have an xTR-ID field */
+    /* If I bit is set, we have an xTR-ID and a site-ID field */
     if (xtrid) {
         proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, ENC_NA);
-        offset += LISP_XTRID_LEN;
+        proto_tree_add_item(lisp_tree, hf_lisp_siteid, tvb, offset, LISP_SITEID_LEN, ENC_NA);
+        offset += LISP_XTRID_LEN + LISP_SITEID_LEN;
     }
 
     /* If R bit is set, we have MS-RTR authentication data */
