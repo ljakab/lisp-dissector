@@ -16,8 +16,6 @@ packet-lisp.c
    * Source/Dest Key (12)
 * Improve LCAF parsing robustness, by ignoring length when dissecting known
   types
-* Jesper proposed a change in xTR-ID, extension with 64 bit site ID.
-  Implement, once documented
 * Implement support for LISP-SEC
 
 packet-lisp-data.c

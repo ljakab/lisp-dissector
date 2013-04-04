@@ -83,6 +83,7 @@
 #define LCAF_HEADER_LEN     6
 #define LISP_ECM_HEADER_LEN 4
 #define LISP_XTRID_LEN      16
+#define LISP_SITEID_LEN     8
 
 #define LISP_MAP_ACT        0xE000
 #define LISP_MAP_AUTH       0x1000
@@ -136,6 +137,7 @@ static int hf_lisp_msrtr_keyid = -1;
 static int hf_lisp_msrtr_authlen = -1;
 static int hf_lisp_msrtr_auth = -1;
 static int hf_lisp_xtrid = -1;
+static int hf_lisp_siteid = -1;
 
 /* Map-Request fields */
 static int hf_lisp_mreq_flags_auth = -1;
@@ -1297,10 +1299,11 @@ dissect_lisp_map_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tr
         offset += len;
     }
 
-    /* If I bit is set, we have an xTR-ID field */
+    /* If I bit is set, we have an xTR-ID and a site-ID field */
     if (xtrid) {
         proto_tree_add_item(lisp_tree, hf_lisp_xtrid, tvb, offset, LISP_XTRID_LEN, ENC_NA);
-        offset += LISP_XTRID_LEN;
+        proto_tree_add_item(lisp_tree, hf_lisp_siteid, tvb, offset, LISP_SITEID_LEN, ENC_NA);
+        offset += LISP_XTRID_LEN + LISP_SITEID_LEN;
     }
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
@@ -1855,6 +1858,9 @@ proto_register_lisp(void)
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_xtrid,
             { "xTR-ID", "lisp.xtrid",
+            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_siteid,
+            { "Site-ID", "lisp.siteid",
             FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mnot_flags_xtrid,
             { "I bit (xTR-ID present)", "lisp.mnot.flags.xtrid",
