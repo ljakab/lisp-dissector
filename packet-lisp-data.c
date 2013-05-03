@@ -2,7 +2,7 @@
  * Routines for LISP Data Message dissection
  * Copyright 2010, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp-data.c 45017 2012-09-20 02:03:38Z morriss $
+ * $Id: packet-lisp-data.c 48786 2013-04-07 18:57:06Z alagoutte $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -30,7 +30,7 @@
 
 #include <epan/packet.h>
 
-/* See draft-ietf-lisp-07 "Locator/ID Separation Protocol (LISP)" */
+/* See RFC 6830 "Locator/ID Separation Protocol (LISP)" */
 
 /*  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *  |N|L|E|V|I|flags|            Nonce/Map-Version                  |
@@ -39,6 +39,7 @@
  *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 
+#define LISP_CONTROL_PORT       4342
 #define LISP_DATA_PORT          4341
 #define LISP_DATA_HEADER_LEN    8       /* Number of bytes in LISP data header */
 
@@ -88,6 +89,10 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     proto_item *tif;
     proto_tree *lisp_data_tree;
     proto_tree *lisp_data_flags_tree;
+
+    /* Check if we have a LISP control packet */
+    if (pinfo->destport == LISP_CONTROL_PORT)
+        return call_dissector(find_dissector("lisp"), tvb, pinfo, tree);
 
     /* Check that there's enough data */
     if (tvb_length(tvb) < LISP_DATA_HEADER_LEN)
@@ -165,12 +170,12 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 proto_tree_add_item(lisp_data_tree,
                         hf_lisp_data_lsb8, tvb, offset, 1, ENC_BIG_ENDIAN);
             }
-            offset +=1;
+            /*offset +=1;*/
         } else {
             if (flags&LISP_DATA_FLAG_L) {
                 proto_tree_add_item(lisp_data_tree,
                         hf_lisp_data_lsb, tvb, offset, 4, ENC_BIG_ENDIAN);
-                offset += 4;
+                /*offset += 4;*/
             }
         }
     }

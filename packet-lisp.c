@@ -2,7 +2,7 @@
  * Routines for Locator/ID Separation Protocol (LISP) Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp.c 45017 2012-09-20 02:03:38Z morriss $
+ * $Id: packet-lisp.c 48836 2013-04-13 14:56:19Z pascal $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -1976,6 +1976,9 @@ proto_register_lisp(void)
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_lisp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+
+    /* Register dissector so that other dissectors can call it */
+    new_register_dissector("lisp", dissect_lisp, proto_lisp);
 }
 
 
