@@ -23,7 +23,6 @@ packet-lisp-data.c
 * Solve upstream buildbot issues:
   http://www.wireshark.org/download/automated/analysis/
 * Use expert_add_info_format() for error messages
-* Check how control packets inside data packets are handled
 
 Other
 =====
