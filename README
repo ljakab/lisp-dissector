@@ -9,19 +9,25 @@ addresses (identifiers).
 
 The LISP data plane encapsulates packets when going from the identifier
 numbering space to the locator numbering space (transit), and decapsulates
-them when reaching the destination identifier numbering space. The LISP
+them when reaching the destination identifier numbering space.  The LISP
 control plane maintains a distributed database with the information necessary
 to do the encapsulation.
 
 This project implements LISP dissector code for the popular Wireshark network
-analyzer. The code is organized in two files, one for data plane packets
-(packet-lisp-data.c), another for control plane packets (packet-lisp.c). To
-include this code with Wireshark, the files must be copied to the
-./epan/dissectors directory in the wireshark source tree and their names added
-to Makefile.common in the same directory. The stadard Wireshark source build
-procedure must be followed afterwards to build the network analyzer.
+analyzer.  Starting with version 1.6.x, a revision of this dissector was
+included in the upstream project, and each new stable series added new
+features from here.  However, stable release series typically happen only once
+a year, and during that time new LISP dissector features are only available
+here first.  Periodically new code is submitted upstream and becomes available
+in the Wireshark Subversion and Git repositories. 
 
-The dissector code is developed against the 1.5.x development branch of
-Wireshark. Due to minor API changes it will not compile with the stable 1.2.x
-and 1.4.x branches. For now, backporting to those branches only requires
-changing dissector_add_uint() calls to dissector_add().
+The code is organized in two files, one for data plane packets
+(packet-lisp-data.c), another for control plane packets (packet-lisp.c).
+These files should be used to overwrite the upstream version in the
+epan/dissectors directory in the Wireshark source tree. The stadard Wireshark
+source build procedure must be followed afterwards to build the network
+analyzer.
+
+The dissector code is developed against the 1.11.x development branch of
+Wireshark.  It may build with older series as well, although some functions
+calls may need to be changed slightly.
