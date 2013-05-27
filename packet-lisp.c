@@ -1,8 +1,13 @@
 /* packet-lisp.c
  * Routines for Locator/ID Separation Protocol (LISP) Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
+ * 
+ * Extension to support types of LCAF: AS Number,Application Data, Geo Coordinates,
+ * Opaque Key, Nonce Locator, Multicast Info, Security Key , Source/Destination Key and
+ * Replication List Entry 
+ * By Radu Terciu <terciu@ac.upc.edu>
  *
- * $Id: packet-lisp.c 48836 2013-04-13 14:56:19Z pascal $
+ *
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -42,7 +47,7 @@
  * format and protocol information.
  */
 
-#define LCAF_DRAFT_VERSION  10
+#define LCAF_DRAFT_VERSION  02
 #define LISP_CONTROL_PORT   4342
 
 /* LISP Control Message types */
