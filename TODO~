@@ -7,15 +7,6 @@ packet-lisp.c
   data
 * Dissect maping records in detail, highlighting individual fields in the hex
   data
-* Implement support for the following LCAF types:
-   * AS Number (3)
-   * Application Data (4)
-   * Geo Coordinates (5)
-   * Opaque Key (6)
-   * Nonce Locator (8)
-   * Multicast Info (9)
-   * Security Key (11)
-   * Source/Dest Key (12)
 * Improve LCAF parsing robustness, by ignoring length when dissecting known
   types
 * Jesper proposed a change in xTR-ID, extension with 64 bit site ID.
