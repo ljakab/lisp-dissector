@@ -21,10 +21,6 @@ a year, and during that time new LISP dissector features are only available
 here first.  Periodically new code is submitted upstream and becomes available
 in the Wireshark Subversion and Git repositories. 
 
-<<<<<<< HEAD
-The dissector code is developed against the 1.8.x development branch of
-Wireshark. 
-=======
 The code is organized in two files, one for data plane packets
 (packet-lisp-data.c), another for control plane packets (packet-lisp.c).
 These files should be used to overwrite the upstream version in the
@@ -35,4 +31,5 @@ analyzer.
 The dissector code is developed against the 1.11.x development branch of
 Wireshark.  It may build with older series as well, although some functions
 calls may need to be changed slightly.
->>>>>>> lori/master
+
+
