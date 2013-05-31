@@ -2,7 +2,7 @@
  * Routines for LISP Data Message dissection
  * Copyright 2010, Lorand Jakab <lj@lispmon.net>
  *
- * $Id: packet-lisp-data.c 45017 2012-09-20 02:03:38Z morriss $
+ * $Id: packet-lisp-data.c 49596 2013-05-27 17:30:43Z mmann $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -29,8 +29,9 @@
 #include <glib.h>
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 
-/* See draft-ietf-lisp-07 "Locator/ID Separation Protocol (LISP)" */
+/* See RFC 6830 "Locator/ID Separation Protocol (LISP)" */
 
 /*  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *  |N|L|E|V|I|flags|            Nonce/Map-Version                  |
@@ -39,6 +40,7 @@
  *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 
+#define LISP_CONTROL_PORT       4342
 #define LISP_DATA_PORT          4341
 #define LISP_DATA_HEADER_LEN    8       /* Number of bytes in LISP data header */
 
@@ -72,9 +74,12 @@ static gint ett_lisp_data = -1;
 static gint ett_lisp_data_flags = -1;
 static gint ett_lisp_data_mapver = -1;
 
+static expert_field ei_lisp_data_flags_en_invalid = EI_INIT;
+static expert_field ei_lisp_data_flags_nv_invalid = EI_INIT;
+
 static dissector_handle_t ipv4_handle;
 static dissector_handle_t ipv6_handle;
-static dissector_handle_t data_handle;
+static dissector_handle_t lisp_handle;
 
 /* Code to actually dissect the packets */
 static int
@@ -89,8 +94,12 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     proto_tree *lisp_data_tree;
     proto_tree *lisp_data_flags_tree;
 
+    /* Check if we have a LISP control packet */
+    if (pinfo->destport == LISP_CONTROL_PORT)
+        return call_dissector(lisp_handle, tvb, pinfo, tree);
+
     /* Check that there's enough data */
-    if (tvb_length(tvb) < LISP_DATA_HEADER_LEN)
+    if (tvb_reported_length(tvb) < LISP_DATA_HEADER_LEN)
         return 0;
 
     /* Make entries in Protocol column and Info column on summary display */
@@ -98,80 +107,75 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
     col_set_str(pinfo->cinfo, COL_INFO, "LISP Encapsulation Header");
 
-    if (tree) {
+    /* create display subtree for the protocol */
+    ti = proto_tree_add_item(tree, proto_lisp_data, tvb, 0,
+            LISP_DATA_HEADER_LEN, ENC_NA);
 
-        /* create display subtree for the protocol */
-        ti = proto_tree_add_item(tree, proto_lisp_data, tvb, 0,
-                LISP_DATA_HEADER_LEN, ENC_NA);
+    lisp_data_tree = proto_item_add_subtree(ti, ett_lisp_data);
 
-        lisp_data_tree = proto_item_add_subtree(ti, ett_lisp_data);
+    tif = proto_tree_add_item(lisp_data_tree,
+            hf_lisp_data_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
 
-        tif = proto_tree_add_item(lisp_data_tree,
-                hf_lisp_data_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+    lisp_data_flags_tree = proto_item_add_subtree(tif, ett_lisp_data_flags);
 
-        lisp_data_flags_tree = proto_item_add_subtree(tif, ett_lisp_data_flags);
+    proto_tree_add_item(lisp_data_flags_tree,
+            hf_lisp_data_flags_nonce, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_data_flags_tree,
+            hf_lisp_data_flags_lsb, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_data_flags_tree,
+            hf_lisp_data_flags_enr, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_data_flags_tree,
+            hf_lisp_data_flags_mv, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_data_flags_tree,
+            hf_lisp_data_flags_iid, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(lisp_data_flags_tree,
+            hf_lisp_data_flags_res, tvb, offset, 1, ENC_BIG_ENDIAN);
 
-        proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_nonce, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_lsb, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_enr, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_mv, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_iid, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(lisp_data_flags_tree,
-                hf_lisp_data_flags_res, tvb, offset, 1, ENC_BIG_ENDIAN);
+    flags = tvb_get_guint8(tvb, offset);
+    offset += 1;
 
-        flags = tvb_get_guint8(tvb, offset);
-        offset += 1;
+    if (flags&LISP_DATA_FLAG_E && !(flags&LISP_DATA_FLAG_N)) {
+        expert_add_info(pinfo, tif, &ei_lisp_data_flags_en_invalid);
+    }
 
-        if (flags&LISP_DATA_FLAG_E && !(flags&LISP_DATA_FLAG_N)) {
-            proto_tree_add_text(lisp_data_tree, tvb, offset, 0,
-                    "Invalid flag combination: if E is set, N MUST be set");
+    if (flags&LISP_DATA_FLAG_N) {
+        if (flags&LISP_DATA_FLAG_V) {
+            expert_add_info(pinfo, tif, &ei_lisp_data_flags_nv_invalid);
         }
+        proto_tree_add_item(lisp_data_tree,
+                hf_lisp_data_nonce, tvb, offset, 3, ENC_BIG_ENDIAN);
+    } else {
+        if (flags&LISP_DATA_FLAG_V) {
+            proto_item *tiv;
+            proto_tree *lisp_data_mapver_tree;
 
-        if (flags&LISP_DATA_FLAG_N) {
-            if (flags&LISP_DATA_FLAG_V) {
-                proto_tree_add_text(lisp_data_tree, tvb, offset, 0,
-                        "Invalid flag combination: N and V can't be set both");
-            }
-            proto_tree_add_item(lisp_data_tree,
-                    hf_lisp_data_nonce, tvb, offset, 3, ENC_BIG_ENDIAN);
-        } else {
-            if (flags&LISP_DATA_FLAG_V) {
-                proto_item *tiv;
-                proto_tree *lisp_data_mapver_tree;
+            tiv = proto_tree_add_item(lisp_data_tree,
+                    hf_lisp_data_mapver, tvb, offset, 3, ENC_BIG_ENDIAN);
 
-                tiv = proto_tree_add_item(lisp_data_tree,
-                        hf_lisp_data_mapver, tvb, offset, 3, ENC_BIG_ENDIAN);
+            lisp_data_mapver_tree = proto_item_add_subtree(tiv, ett_lisp_data_mapver);
 
-                lisp_data_mapver_tree = proto_item_add_subtree(tiv, ett_lisp_data_mapver);
-
-                proto_tree_add_item(lisp_data_mapver_tree,
-                        hf_lisp_data_srcmapver, tvb, offset, 3, ENC_BIG_ENDIAN);
-                proto_tree_add_item(lisp_data_mapver_tree,
-                        hf_lisp_data_dstmapver, tvb, offset, 3, ENC_BIG_ENDIAN);
-            }
+            proto_tree_add_item(lisp_data_mapver_tree,
+                    hf_lisp_data_srcmapver, tvb, offset, 3, ENC_BIG_ENDIAN);
+            proto_tree_add_item(lisp_data_mapver_tree,
+                    hf_lisp_data_dstmapver, tvb, offset, 3, ENC_BIG_ENDIAN);
         }
+    }
+    offset += 3;
+
+    if (flags&LISP_DATA_FLAG_I) {
+        proto_tree_add_item(lisp_data_tree,
+                hf_lisp_data_iid, tvb, offset, 3, ENC_BIG_ENDIAN);
         offset += 3;
-
-        if (flags&LISP_DATA_FLAG_I) {
+        if (flags&LISP_DATA_FLAG_L) {
             proto_tree_add_item(lisp_data_tree,
-                    hf_lisp_data_iid, tvb, offset, 3, ENC_BIG_ENDIAN);
-            offset += 3;
-            if (flags&LISP_DATA_FLAG_L) {
-                proto_tree_add_item(lisp_data_tree,
-                        hf_lisp_data_lsb8, tvb, offset, 1, ENC_BIG_ENDIAN);
-            }
-            offset +=1;
-        } else {
-            if (flags&LISP_DATA_FLAG_L) {
-                proto_tree_add_item(lisp_data_tree,
-                        hf_lisp_data_lsb, tvb, offset, 4, ENC_BIG_ENDIAN);
-                offset += 4;
-            }
+                    hf_lisp_data_lsb8, tvb, offset, 1, ENC_BIG_ENDIAN);
+        }
+        /*offset +=1;*/
+    } else {
+        if (flags&LISP_DATA_FLAG_L) {
+            proto_tree_add_item(lisp_data_tree,
+                    hf_lisp_data_lsb, tvb, offset, 4, ENC_BIG_ENDIAN);
+            /*offset += 4;*/
         }
     }
 
@@ -183,17 +187,14 @@ dissect_lisp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     switch (ip_ver) {
         case 4:
             call_dissector(ipv4_handle, next_tvb, pinfo, tree);
-            break;
+            return tvb_reported_length(tvb);
         case 6:
             call_dissector(ipv6_handle, next_tvb, pinfo, tree);
-            break;
-        default:
-            call_dissector(data_handle, next_tvb, pinfo, tree);
-            break;
+            return tvb_reported_length(tvb);
     }
 
     /* Return the amount of data this dissector was able to dissect */
-    return tvb_length(tvb);
+    return LISP_DATA_HEADER_LEN;
 }
 
 
@@ -260,6 +261,13 @@ proto_register_lisp_data(void)
         &ett_lisp_data_mapver
     };
 
+    static ei_register_info ei[] = {
+        { &ei_lisp_data_flags_en_invalid, { "lisp-data.flags.en_invalid", PI_PROTOCOL, PI_WARN, "Invalid flag combination: if E is set, N MUST be set", EXPFILL }},
+        { &ei_lisp_data_flags_nv_invalid, { "lisp-data.flags.nv_invalid", PI_PROTOCOL, PI_WARN, "Invalid flag combination: N and V can't be set both", EXPFILL }},
+    };
+
+    expert_module_t* expert_lisp_data;
+
     /* Register the protocol name and description */
     proto_lisp_data = proto_register_protocol("Locator/ID Separation Protocol (Data)",
         "LISP Data", "lisp-data");
@@ -267,6 +275,8 @@ proto_register_lisp_data(void)
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_lisp_data, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_lisp_data = expert_register_protocol(proto_lisp_data);
+    expert_register_field_array(expert_lisp_data, ei, array_length(ei));
 }
 
 /* Simple form of proto_reg_handoff_lisp_data which can be used if there are
@@ -283,7 +293,7 @@ proto_reg_handoff_lisp_data(void)
     dissector_add_uint("udp.port", LISP_DATA_PORT, lisp_data_handle);
     ipv4_handle = find_dissector("ip");
     ipv6_handle = find_dissector("ipv6");
-    data_handle = find_dissector("data");
+    lisp_handle = find_dissector("lisp");
 }
 
 /*
