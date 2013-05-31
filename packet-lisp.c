@@ -8,10 +8,7 @@
  * By Radu Terciu <terciu@ac.upc.edu>
  *
  *
-<<<<<<< HEAD
-=======
  * $Id: packet-lisp.c 48836 2013-04-13 14:56:19Z pascal $
->>>>>>> lori/master
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -1674,15 +1671,12 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
     proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_eid_afi, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
     offset_rec += 2;
 
-<<<<<<< HEAD
-   
+
     /* EID made to support LCAF */
     if(prefix_afi==AFNUM_LCAF)
       offset_rec=dissect_lcaf(tvb,pinfo,lisp_mapping_tree,offset_rec);
     else 
-=======
     /* EID */
->>>>>>> lori/master
     proto_tree_add_string(lisp_mapping_tree, hf_lisp_mapping_eid, tvb, offset_rec, offset - offset_rec, prefix);
 
     /* Locators */
