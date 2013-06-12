@@ -215,6 +215,9 @@ static int hf_lisp_lcaf_iid = -1;
 
 /* LCAF AS Number fields */
 static int hf_lisp_lcaf_asn = -1;
+static int hf_lisp_lcaf_asn_afi = -1;
+static int hf_lisp_lcaf_asn_ipv4 = -1;
+static int hf_lisp_lcaf_asn_ipv6 = -1;
 
 /* LCAF Application Data fields */
 static int hf_lisp_lcaf_app_data_tos = -1;
@@ -557,55 +560,70 @@ offset+=addr_len;}
 
 
 /*
-    Dissector for Autonomous System Number
+ * Dissector code for Autonomous System Number
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |    Rsvd1      |    Flags      |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |   Type = 2    |     Rsvd2     |             4 + n             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |                           AS Number                           |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |         Address  ...          |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
 
-     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |           AFI = 16387         |     Rsvd1     |     Flags     |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |   Type = 3    |     Rsvd2     |             4 + n             |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                           AS Number                           |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |              AFI = x          |         Address  ...          |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-
-*/
 static int
-dissect_lcaf_asn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,gint offset)
+dissect_lcaf_asn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
 {
-guint16 afi;
-  const gchar *addr_str;
-  guint16      addr_len = 0; 
- 
+    guint16              afi;
+    const gchar         *addr_str;
+    guint16              addr_len = 0;
+    struct e_in6_addr    e_in6_addr;
+    tvbuff_t            *next_tvb;
 
+    /* AS Number (4 bytes) */
+    proto_tree_add_item(tree, hf_lisp_lcaf_asn, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
 
-proto_tree_add_item(tree,hf_lisp_lcaf_asn,tvb,offset,4,ENC_BIG_ENDIAN);
-offset+=4;
+    /* AFI (2 bytes) */
+    afi = tvb_get_ntohs(tvb,offset);
+    proto_tree_add_item(tree, hf_lisp_lcaf_asn_afi, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
 
+    /* Address */
+    switch (afi) {
+        case AFNUM_RESERVED:
+            proto_tree_add_text(tree, tvb, offset, 0, "Address: not set");
+            break;
+        case AFNUM_INET:
+            proto_tree_add_ipv4(tree, hf_lisp_lcaf_asn_ipv4, tvb, offset,
+                    INET_ADDRLEN, tvb_get_ipv4(tvb, offset));
+            offset += INET_ADDRLEN;
+            break;
+        case AFNUM_INET6:
+            tvb_get_ipv6(tvb, offset, &e_in6_addr);
+            proto_tree_add_ipv6(tree, hf_lisp_lcaf_asn_ipv6, tvb, offset,
+                    INET6_ADDRLEN, (guint8 *)&e_in6_addr);
+            offset += INET6_ADDRLEN;
+            break;
+        case AFNUM_LCAF:
+            addr_str = get_addr_str(tvb, offset, afi, &addr_len);
+            proto_tree_add_text(tree, tvb, offset, addr_len, "Address: %s", addr_str);
+            offset += addr_len;
+            break;
+        default:
+            expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                    "Unexpected AS Number AFI (%d), cannot decode", afi);
+            next_tvb = tvb_new_subset_remaining(tvb, offset);
+            call_dissector(data_handle, next_tvb, pinfo, tree);
+            return offset;
+    }
 
-
-/* AFI and Address */
-
-    afi=tvb_get_ntohs(tvb,offset);
-    offset+=2;
-    addr_str=get_addr_str(tvb,offset,afi,&addr_len);
-
-if(addr_str==NULL)
-   {expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
-   "Unexpected AFI (%d), cannot decode", afi);
-   return offset;}
-
-if(afi==AFNUM_LCAF)
-offset=dissect_lcaf(tvb,pinfo,tree,offset);
-
-else  
-{proto_tree_add_text(tree,tvb,offset,addr_len,"Address: %s",addr_str );
-
-offset+=addr_len;}
-
-return offset;
+    return offset;
 }
 
 
@@ -1844,7 +1862,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 break;
             case AFNUM_LCAF:
                 itr_rloc_lcaf = get_addr_str(tvb, offset + 2, itr_afi, &addr_len);
-                tir = proto_tree_add_text(lisp_tree, tvb, offset, 6,
+                tir = proto_tree_add_text(lisp_tree, tvb, offset, addr_len + 2,
                         "ITR-RLOC %d: %s", i + 1, itr_rloc_lcaf);
                 lisp_itr_tree = proto_item_add_subtree(tir, ett_lisp_itr);
                 offset = dissect_lcaf(tvb, pinfo, lisp_itr_tree, offset + 2);
@@ -2763,8 +2781,17 @@ proto_register_lisp(void)
             { "ETR UDP Port Number", "lisp.lcaf.natt.etrport",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_asn,
-            { "Autonomous System Number", "lisp.lcaf.asn",
+            { "AS Number", "lisp.lcaf.asn",
             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_asn_afi,
+            { "AS Number AFI", "lisp.lcaf.asn_afi",
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_asn_ipv4,
+            { "AS Number Address", "lisp.lcaf.asn_ipv4",
+            FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_asn_ipv6,
+            { "AS Number Address", "lisp.lcaf.asn_ipv6",
+            FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_app_data_tos,
             { "IP Tos/ IPv6 Tc /Flow Label", "lisp.lcaf.app.data.tos",
             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
