@@ -228,6 +228,11 @@ static int hf_lisp_lcaf_asn_ipv6 = -1;
 /* LCAF Application Data fields */
 static int hf_lisp_lcaf_app_data_tos = -1;
 
+/* LCAF Geo Coordinates fields */
+static int hf_lisp_lcaf_geo_afi = -1;
+static int hf_lisp_lcaf_geo_ipv4 = -1;
+static int hf_lisp_lcaf_geo_ipv6 = -1;
+
 /* LCAF Opaque Key fields */
 static int hf_lisp_lcaf_okey_kfldnum = -1;
 static int hf_lisp_lcaf_okey_kwldcard = -1;
@@ -509,7 +514,7 @@ dissect_lcaf_afi_list(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 
 /*
- * Dissector code for Instance ID
+ * Dissector code for Instance ID LCAF
  *
  *   0                   1                   2                   3
  *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -566,7 +571,7 @@ offset+=addr_len;}
 
 
 /*
- * Dissector code for Autonomous System Number
+ * Dissector code for AS Number LCAF
  *
  *   0                   1                   2                   3
  *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -697,117 +702,129 @@ offset+=addr_len;}
 
 return offset;
 }
+
+
 /*
+ * Dissector code for Geo Coordinate LCAF
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |           AFI = 16387         |     Rsvd1     |     Flags     |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |   Type = 5    |     Rsvd2     |            12 + n             |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |N|     Latitude Degrees        |    Minutes    |    Seconds    |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |E|     Longitude Degrees       |    Minutes    |    Seconds    |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |                            Altitude                           |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |              AFI = x          |         Address  ...          |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ */
 
- Geo Coordinate LISP Canonical Address Format:
-
-     0                   1                   2                   3
-     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |           AFI = 16387         |     Rsvd1     |     Flags     |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |   Type = 5    |     Rsvd2     |            12 + n             |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |N|     Latitude Degrees        |    Minutes    |    Seconds    |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |E|     Longitude Degrees       |    Minutes    |    Seconds    |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                            Altitude                           |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |              AFI = x          |         Address  ...          |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-*/
-
-static int dissect_lcaf_geo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,gint offset)
+static int
+dissect_lcaf_geo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
 {
-	guint16 latit;
-	guint16 longit;
-	guint32 altit;
-	guint16 afi;
-	guint16 flag;
-	const gchar* addr_str;
-        guint16 addr_len=0;
-	guint8 min;
-	guint8 sec;
-       //prepare mask for N or E bit
-	guint mask=1<<15;
+    gboolean north, east;
+    guint16 deg;
+    guint8 min, sec;
+    guint32 alt;
+    guint16 afi;
+    const guint16 mask = 0x7FFF;   /* prepare mask for N or E bit */
 
-	//PROCESS LATITUDE
-	latit=tvb_get_ntohs(tvb,offset);
-	//bitwise AND to detect if N bit is set or not
-	flag=latit & mask ;
-	//make N bit 0
-	latit=latit<<1;
-	latit=latit>>1;
-	//get minute and seconds
-	
-	min=tvb_get_guint8(tvb,offset+2);
-	sec=tvb_get_guint8(tvb,offset+3);
-	
+    /* PROCESS LATITUDE */
 
-	/* check if latitude between 0-90, minutes and second between 0-60 */
-	if( latit<=90  && min <60  && sec <60)
-	   {if(flag)
-		   proto_tree_add_text(tree,tvb,offset,4,"Latitude: %d degrees %d minutes %d seconds , North ",latit,min,sec );
-	   else 
-		   proto_tree_add_text(tree,tvb,offset,4,"Latitude: %d degrees %d minutes %d seconds , South ",latit,min,sec );
-	
-            }
-        offset+=4;
-	
-	//PROCESS LONGITUDE
-	longit=tvb_get_ntohs(tvb,offset);
-	//bitwise AND to detect if N bit is set or not
-	flag=longit & mask ;
-	//make N bit 0
-	longit=longit<<1;
-	longit=longit>>1;
-	//get minute and seconds
-	
-	min=tvb_get_guint8(tvb,offset+2);
-	sec=tvb_get_guint8(tvb,offset+3);
-	
+    /* Hemisphere and degrees (2 bytes) */
+    deg = tvb_get_ntohs(tvb, offset);
+    north = deg >> 15;
+    deg &= mask;
+    offset += 2;
+    if (deg > 90)
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                "Invalid latitude degrees value (%d)", deg);
 
-	/* check if latitude between 0-90, minutes and second between 0-60 */
-	if( longit<=90  && min <60  && sec <60)
-	 {  if(flag)
-		   proto_tree_add_text(tree,tvb,offset,4,"Longitude: %d degrees %d minutes %d seconds , East ",longit,min,sec );
-	   else 
-		   proto_tree_add_text(tree,tvb,offset,4,"Longitude: %d degrees %d minutes %d seconds , West ",longit,min,sec );
-          }
-	offset+=4;
+    /* Minutes (1 byte) */
+    min = tvb_get_guint8(tvb, offset); offset += 1;
+    if (min > 60)
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                "Invalid latitude minutes value (%d)", min);
 
-	//PROCESS ALTITUDE
-	altit=tvb_get_ntohl(tvb,offset);
-	//if altitude equals 0x7fffffff then no altitude information encoded
-	if(altit!=0x7fffffff)
-	proto_tree_add_text(tree,tvb,offset,4,"Altitude: %d meters ",altit );
-	else 
-	proto_tree_add_text(tree,tvb,offset,4,"No Altitude value encoded " );
-	offset+=4;
+    /* Seconds (1 byte) */
+    sec = tvb_get_guint8(tvb, offset); offset += 1;
+    if (sec > 60)
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                "Invalid latitude seconds value (%d)", min);
 
-	//Process AFI and Address
+    proto_tree_add_text(tree, tvb, offset - 4, 4, "Latitude: %s %d\302\260 %d' %d\"",
+            north ? "N" : "S", deg, min, sec);
 
-    afi=tvb_get_ntohs(tvb,offset);
-    offset+=2;
-    addr_str=get_addr_str(tvb,offset,afi,&addr_len);
+    /* PROCESS LONGITUDE */
 
-	if(addr_str==NULL)
-		{expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
-			"Unexpected AFI (%d), cannot decode", afi);
-	 return offset;}
+    /* Hemisphere and degrees (2 bytes) */
+    deg = tvb_get_ntohs(tvb, offset);
+    east = deg >> 15;
+    deg &= mask;
+    offset += 2;
+    if (deg > 180)
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                "Invalid longitude degrees value (%d)", deg);
 
-if(afi==AFNUM_LCAF)
-offset=dissect_lcaf(tvb,pinfo,tree,offset);
+    /* Minutes (1 byte) */
+    min = tvb_get_guint8(tvb, offset); offset += 1;
+    if (min > 60)
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                "Invalid longitude minutes value (%d)", min);
 
-else  
-{proto_tree_add_text(tree,tvb,offset,addr_len,"Address: %s",addr_str );
+    /* Seconds (1 byte) */
+    sec = tvb_get_guint8(tvb, offset); offset += 1;
+    if (sec > 60)
+        expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                "Invalid longitude seconds value (%d)", min);
 
-offset+=addr_len;}
+    proto_tree_add_text(tree, tvb, offset - 4, 4, "Longitude: %s %d\302\260 %d' %d\"",
+            east ? "E" : "W", deg, min, sec);
 
-return offset;
+    /* PROCESS ALTITUDE */
+    alt = tvb_get_ntohl(tvb, offset);
+    /* if altitude equals 0x7fffffff then no altitude information encoded */
+    if (alt == 0x7fffffff)
+        proto_tree_add_text(tree, tvb, offset, 4, "No Altitude value encoded");
+    else
+        proto_tree_add_text(tree, tvb, offset, 4, "Altitude: %d m", alt);
+    offset += 4;
+
+    /* AFI (2 bytes) */
+    afi = tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(tree, hf_lisp_lcaf_geo_afi, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+
+    switch (afi) {
+        case AFNUM_RESERVED:
+            break;
+        case AFNUM_INET:
+            proto_tree_add_item(tree, hf_lisp_lcaf_geo_ipv4,
+                    tvb, offset, INET_ADDRLEN, ENC_BIG_ENDIAN);
+            offset += INET_ADDRLEN;
+            break;
+        case AFNUM_INET6:
+            proto_tree_add_item(tree, hf_lisp_lcaf_geo_ipv6,
+                    tvb, offset, INET6_ADDRLEN, ENC_BIG_ENDIAN);
+            offset += INET6_ADDRLEN;
+            break;
+        case AFNUM_LCAF:
+            offset = dissect_lcaf(tvb, pinfo, tree, offset);
+            break;
+        default:
+            expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
+                    "Unexpected Geo Coordinate AFI (%d), cannot decode", afi);
+    }
+    return offset;
 }
+
+
 /*
    Opaque Key LISP Canonical Address Format:
 
@@ -2837,6 +2854,15 @@ proto_register_lisp(void)
         { &hf_lisp_lcaf_app_data_tos,
             { "IP Tos/ IPv6 Tc /Flow Label", "lisp.lcaf.app.data.tos",
             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_geo_afi,
+            { "Address AFI", "lisp.lcaf.geo_afi",
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_geo_ipv4,
+            { "Address", "lisp.lcaf.geo_ipv4",
+            FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_geo_ipv6,
+            { "Address", "lisp.lcaf.geo_ipv6",
+            FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_mcast_srcmsk,
             { "Source Mask Length", "lisp.lcaf.mcast.srcmsk",
             FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
