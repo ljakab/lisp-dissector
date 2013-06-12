@@ -157,8 +157,14 @@ static int hf_lisp_mreq_res = -1;
 static int hf_lisp_mreq_srceid_afi = -1;
 static int hf_lisp_mreq_srceid = -1;
 static int hf_lisp_mreq_srceidv6 = -1;
+static int hf_lisp_mreq_srcitr_afi = -1;
 static int hf_lisp_mreq_srcitr = -1;
 static int hf_lisp_mreq_srcitrv6 = -1;
+static int hf_lisp_mreq_rec_res = -1;
+static int hf_lisp_mreq_rec_prefix_len = -1;
+static int hf_lisp_mreq_rec_prefix_afi = -1;
+static int hf_lisp_mreq_rec_prefix_ipv4 = -1;
+static int hf_lisp_mreq_rec_prefix_ipv6 = -1;
 
 /* Map-Reply fields */
 static int hf_lisp_mrep_flags_probe = -1;
@@ -1833,9 +1839,9 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         guint16 itr_afi;
         guint32 itr_rloc_v4;
         struct e_in6_addr itr_rloc_v6;
+        const gchar *itr_rloc_lcaf;
         proto_item *tir;
         proto_tree *lisp_itr_tree;
-        const gchar *itr_rloc_lcaf;
 
         itr_afi = tvb_get_ntohs(tvb, offset);
 
@@ -1845,7 +1851,8 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 tir = proto_tree_add_text(lisp_tree, tvb, offset, INET_ADDRLEN + 2,
                         "ITR-RLOC %d: %s", i + 1, ip_to_str((guint8 *)&itr_rloc_v4));
                 lisp_itr_tree = proto_item_add_subtree(tir, ett_lisp_itr);
-                proto_tree_add_text(lisp_itr_tree, tvb, offset, 2, "ITR-RLOC-AFI: %d", itr_afi);
+                proto_tree_add_item(lisp_itr_tree, hf_lisp_mreq_srcitr_afi,
+                        tvb, offset, 2, ENC_BIG_ENDIAN);
                 proto_tree_add_ipv4(lisp_itr_tree, hf_lisp_mreq_srcitr, tvb, offset + 2,
                         INET_ADDRLEN, itr_rloc_v4);
                 offset += INET_ADDRLEN + 2;
@@ -1855,7 +1862,8 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 tir = proto_tree_add_text(lisp_tree, tvb, offset, INET6_ADDRLEN + 2,
                         "ITR-RLOC %d: %s", i + 1, ip6_to_str(&itr_rloc_v6));
                 lisp_itr_tree = proto_item_add_subtree(tir, ett_lisp_itr);
-                proto_tree_add_text(lisp_itr_tree, tvb, offset, 2, "ITR-RLOC-AFI: %d", itr_afi);
+                proto_tree_add_item(lisp_itr_tree, hf_lisp_mreq_srcitr_afi,
+                        tvb, offset, 2, ENC_BIG_ENDIAN);
                 proto_tree_add_ipv6(lisp_itr_tree, hf_lisp_mreq_srcitrv6, tvb, offset + 2,
                         INET6_ADDRLEN, (guint8 *)&itr_rloc_v6);
                 offset += INET6_ADDRLEN + 2;
@@ -1865,6 +1873,8 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 tir = proto_tree_add_text(lisp_tree, tvb, offset, addr_len + 2,
                         "ITR-RLOC %d: %s", i + 1, itr_rloc_lcaf);
                 lisp_itr_tree = proto_item_add_subtree(tir, ett_lisp_itr);
+                proto_tree_add_item(lisp_itr_tree, hf_lisp_mreq_srcitr_afi,
+                        tvb, offset, 2, ENC_BIG_ENDIAN);
                 offset = dissect_lcaf(tvb, pinfo, lisp_itr_tree, offset + 2);
                 break;
             default:
@@ -1878,14 +1888,12 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
 
     /* Query records */
     for(i=0; i < rec_cnt; i++) {
-        guint16 reserved, prefix_mask;
-        guint16 prefix_afi;
+        guint16 prefix_mask, prefix_afi;
         const gchar *prefix;
         proto_item *tir;
         proto_tree *lisp_record_tree;
 
         addr_len = 0;
-        reserved = tvb_get_guint8(tvb, offset);
         prefix_mask = tvb_get_guint8(tvb, offset + 1);
         prefix_afi = tvb_get_ntohs(tvb, offset + 2);
         prefix = get_addr_str(tvb, offset + 4, prefix_afi, &addr_len);
@@ -1906,20 +1914,36 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
             col_append_fstr(pinfo->cinfo, COL_INFO, " for %s/%d", prefix, prefix_mask);
 
         lisp_record_tree = proto_item_add_subtree(tir, ett_lisp_record);
-        proto_tree_add_text(lisp_record_tree, tvb, offset, 1, "Reserved bits: 0x%02X",
-                reserved);
-        proto_tree_add_text(lisp_record_tree, tvb, offset + 1, 1, "Prefix length: %d",
-                prefix_mask);
-        proto_tree_add_text(lisp_record_tree, tvb, offset + 2, 2, "Prefix AFI: %d",
-                prefix_afi);
-        offset+=4;
 
-        if (prefix_afi == AFNUM_LCAF) {
-            offset = dissect_lcaf(tvb, pinfo, lisp_record_tree, offset);
-        } else {
-            proto_tree_add_text(lisp_record_tree, tvb, offset + 4, addr_len,
-                    "Prefix: %s", prefix);
-            offset += addr_len;
+        proto_tree_add_item(lisp_record_tree, hf_lisp_mreq_rec_res, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
+        proto_tree_add_item(lisp_record_tree, hf_lisp_mreq_rec_prefix_len, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
+        proto_tree_add_item(lisp_record_tree, hf_lisp_mreq_rec_prefix_afi, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+
+        switch (prefix_afi) {
+            case AFNUM_INET:
+                proto_tree_add_item(lisp_record_tree, hf_lisp_mreq_rec_prefix_ipv4,
+                        tvb, offset, INET_ADDRLEN, ENC_BIG_ENDIAN);
+                offset += INET_ADDRLEN;
+                break;
+            case AFNUM_INET6:
+                proto_tree_add_item(lisp_record_tree, hf_lisp_mreq_rec_prefix_ipv6,
+                        tvb, offset, INET6_ADDRLEN, ENC_BIG_ENDIAN);
+                offset += INET6_ADDRLEN;
+                break;
+            case AFNUM_LCAF:
+                offset = dissect_lcaf(tvb, pinfo, lisp_record_tree, offset);
+                break;
+            default:
+                expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
+                        "Unexpected Prefix AFI (%d), cannot decode", prefix_afi);
+                next_tvb = tvb_new_subset_remaining(tvb, offset);
+                call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
+                return;
         }
     }
 
@@ -2624,12 +2648,30 @@ proto_register_lisp(void)
         { &hf_lisp_mreq_srceidv6,
             { "Source EID", "lisp.mreq.srceidv6",
             FT_IPv6, BASE_NONE, NULL, 0x0, "Source EID Address", HFILL }},
+        { &hf_lisp_mreq_srcitr_afi,
+            { "ITR-RLOC-AFI", "lisp.mreq.srcitr_afi",
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, "Originating ITR RLOC Address Family Indicator", HFILL }},
         { &hf_lisp_mreq_srcitr,
             { "ITR-RLOC Address", "lisp.mreq.srcitr",
             FT_IPv4, BASE_NONE, NULL, 0x0, "Originating ITR RLOC Address", HFILL }},
         { &hf_lisp_mreq_srcitrv6,
             { "ITR-RLOC Address", "lisp.mreq.srcitrv6",
             FT_IPv6, BASE_NONE, NULL, 0x0, "Originating ITR RLOC Address", HFILL }},
+        { &hf_lisp_mreq_rec_res,
+            { "Reserved bits", "lisp.mreq.rec.res",
+            FT_UINT8, BASE_HEX, NULL, 0x0, "Must be zero", HFILL }},
+        { &hf_lisp_mreq_rec_prefix_len,
+            { "Prefix length", "lisp.mreq.rec.prefix_len",
+            FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mreq_rec_prefix_afi,
+            { "Prefix AFI", "lisp.mreq.rec.prefix_afi",
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, "Prefix Address Family Indicator", HFILL }},
+        { &hf_lisp_mreq_rec_prefix_ipv4,
+            { "Prefix", "lisp.mreq.rec.prefix_ipv4",
+            FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_mreq_rec_prefix_ipv6,
+            { "Prefix", "lisp.mreq.rec.prefix_ipv6",
+            FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_mrep_flags_probe,
             { "P bit (Probe)", "lisp.mrep.flags.probe",
             FT_BOOLEAN, 24, TFS(&tfs_set_notset), MAP_REP_FLAG_P, NULL, HFILL }},
@@ -2782,16 +2824,16 @@ proto_register_lisp(void)
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_asn,
             { "AS Number", "lisp.lcaf.asn",
-            FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+            FT_UINT32, BASE_DEC, NULL, 0x0, "Autonomous System Number", HFILL }},
         { &hf_lisp_lcaf_asn_afi,
             { "AS Number AFI", "lisp.lcaf.asn_afi",
-            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, NULL, HFILL }},
+            FT_UINT16, BASE_DEC, VALS(afn_vals), 0x0, "Autonomous System Number Address Family Indicator", HFILL }},
         { &hf_lisp_lcaf_asn_ipv4,
             { "AS Number Address", "lisp.lcaf.asn_ipv4",
-            FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+            FT_IPv4, BASE_NONE, NULL, 0x0, "Autonomous System Number IPv4 Address", HFILL }},
         { &hf_lisp_lcaf_asn_ipv6,
             { "AS Number Address", "lisp.lcaf.asn_ipv6",
-            FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+            FT_IPv6, BASE_NONE, NULL, 0x0, "Autonomous System Number IPv6 Address", HFILL }},
         { &hf_lisp_lcaf_app_data_tos,
             { "IP Tos/ IPv6 Tc /Flow Label", "lisp.lcaf.app.data.tos",
             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
