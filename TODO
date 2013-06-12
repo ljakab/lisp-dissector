@@ -5,21 +5,14 @@ packet-lisp.c
 * Actually show the encapsulation header when present
 * Dissect locator sets in detail, highlighting individual fields in the hex
   data
-* LCAF done - use it as Source EID in Map Request and in Map INFO 
-* Dissect maping records in detail, highlighting individual fields in the hex
-  data
 * Improve LCAF parsing robustness, by ignoring length when dissecting known
   types
-* Jesper proposed a change in xTR-ID, extension with 64 bit site ID.
-  Implement, once documented
 * Implement support for LISP-SEC
+* Expand get_addr_str() for AS Number
+* Reduce proto_tree_add_text() occurances
 
 packet-lisp-data.c
 ==================
-* Solve upstream buildbot issues:
-  http://www.wireshark.org/download/automated/analysis/
-* Use expert_add_info_format() for error messages
-* Check how control packets inside data packets are handled
 
 Other
 =====

@@ -1,11 +1,11 @@
 /* packet-lisp.c
  * Routines for Locator/ID Separation Protocol (LISP) Control Message dissection
  * Copyright 2011, Lorand Jakab <lj@lispmon.net>
- * 
- * Extension to support types of LCAF: AS Number,Application Data, Geo Coordinates,
- * Opaque Key, Nonce Locator, Multicast Info, Security Key , Source/Destination Key and
- * Replication List Entry 
- * By Radu Terciu <terciu@ac.upc.edu>
+ *
+ * Support for the following LCAF types: AS Number, Application Data, Geo Coordinates,
+ * Opaque Key, Nonce Locator, Multicast Info, Security Key, Source/Destination Key and
+ * Replication List Entry
+ * by Radu Terciu <terciu@ac.upc.edu>
  *
  *
  * $Id: packet-lisp.c 48836 2013-04-13 14:56:19Z pascal $
@@ -85,7 +85,7 @@
 #define LCAF_ELP            10
 #define LCAF_SEC_KEY        11
 #define LCAF_SRC_DST_KEY    12
-#define LCAF_REPL_LIST      13
+#define LCAF_RLE            13
 
 #define LCAF_HEADER_LEN     6
 #define LISP_ECM_HEADER_LEN 4
@@ -210,45 +210,36 @@ static int hf_lisp_lcaf_type = -1;
 static int hf_lisp_lcaf_res2 = -1;
 static int hf_lisp_lcaf_length = -1;
 
-/* LCAF IID fields */
+/* LCAF Instance ID fields */
 static int hf_lisp_lcaf_iid = -1;
 
+/* LCAF AS Number fields */
+static int hf_lisp_lcaf_asn = -1;
 
-/*LCAF AS fields*/
+/* LCAF Application Data fields */
+static int hf_lisp_lcaf_app_data_tos = -1;
 
-static int hf_lisp_lcaf_asn=-1;
+/* LCAF Opaque Key fields */
+static int hf_lisp_lcaf_okey_kfldnum = -1;
+static int hf_lisp_lcaf_okey_kwldcard = -1;
+static int hf_lisp_lcaf_okey_key = -1;
 
-/* LCAF APP DATA fields */
-static int hf_lisp_lcaf_app_data_tos=-1;
-
-/* LCAF GEO Coordinates Fields */
-
-
-/* LCAF OKEY Opaque Key Type fields*/
-static int hf_lisp_lcaf_okey_kfldnum=-1;
-static int hf_lisp_lcaf_okey_kwldcard=-1;
-static int hf_lisp_lcaf_okey_key=-1;
-
-/*LCAF NONCE LOCATOR fields */
-static int hf_lisp_lcaf_nonce=-1;
-
-/* LCAF SEC_KEY fields*/
-
-static int hf_lisp_lcaf_sec_key_alg=-1;
-static int hf_lisp_lcaf_sec_key_key=-1;
-
-/* LCAF SRC_DST_KEY fields */
-
-/* LCAF LCAF_MCAST_INFO fields */
-
-static int hf_lisp_lcaf_mcast_srcmsk=-1;
-static int hf_lisp_lcaf_mcast_grpmsk=-1;
-static int hf_lisp_lcaf_mcast_srcaddr=-1;
-static int hf_lisp_lcaf_mcast_grpaddr=-1;
-
-/* LCAF NATT fields */
+/* LCAF NAT-Traversal fields */
 static int hf_lisp_lcaf_natt_msport = -1;
 static int hf_lisp_lcaf_natt_etrport = -1;
+
+/*LCAF Nonce Locator fields */
+static int hf_lisp_lcaf_nonce = -1;
+
+/* LCAF Multicast Info fields */
+static int hf_lisp_lcaf_mcast_srcmsk = -1;
+static int hf_lisp_lcaf_mcast_grpmsk = -1;
+static int hf_lisp_lcaf_mcast_srcaddr = -1;
+static int hf_lisp_lcaf_mcast_grpaddr = -1;
+
+/* LCAF Security Key fields*/
+static int hf_lisp_lcaf_sec_key_alg = -1;
+static int hf_lisp_lcaf_sec_key_key = -1;
 
 /* Encapsulated Control Message fields */
 static int hf_lisp_ecm_flags_sec = -1;
@@ -308,13 +299,13 @@ const value_string lcaf_typevals[] = {
     { LCAF_APP_DATA,        "Application Data" },
     { LCAF_GEO,             "Geo Coordinates" },
     { LCAF_OKEY,            "Opaque Key" },
-    { LCAF_NATT,            "NAT Traversal" },
+    { LCAF_NATT,            "NAT-Traversal" },
     { LCAF_NONCE_LOC,       "Nonce Locator" },
     { LCAF_MCAST_INFO,      "Multicast Info" },
     { LCAF_ELP,             "Explicit Locator Path" },
     { LCAF_SEC_KEY,         "Security Key" },
     { LCAF_SRC_DST_KEY,     "Source/Dest Key" },
-    { LCAF_REPL_LIST,       "Replication List Entry" },
+    { LCAF_RLE,             "Replication List Entry" },
     { 0,                    NULL}
 };
 
@@ -372,7 +363,7 @@ get_addr_str(tvbuff_t *tvb, gint offset, guint16 afi, guint16 *addr_len)
             return addr_str;
         case AFNUM_LCAF:
             get_lcaf_data(tvb, offset, &lcaf_type, addr_len);
-            addr_str = val_to_str(lcaf_type, lcaf_typevals, "Unknown LCAF Type (%d)");
+            addr_str = val_to_str(lcaf_type, lcaf_typevals, "Unknown LCAF type (%d)");
             if (lcaf_type == LCAF_IID) {
                 iid = tvb_get_ntohl(tvb, offset + LCAF_HEADER_LEN);
                 afi = tvb_get_ntohs(tvb, offset + LCAF_HEADER_LEN + 4);
@@ -508,7 +499,6 @@ dissect_lcaf_afi_list(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 }
 
 
-
 /*
  * Dissector code for Instance ID
  *
@@ -527,7 +517,7 @@ dissect_lcaf_afi_list(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
  */
 
 static int
-dissect_lcaf_iid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,gint offset)
+dissect_lcaf_iid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
 {
 guint16 afi;
 const gchar *addr_str;
@@ -620,7 +610,7 @@ return offset;
 
 
 /*
-  0                   1                   2                   3
+     0                   1                   2                   3
      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     |           AFI = 16387         |     Rsvd1     |     Flags     |
@@ -1401,6 +1391,7 @@ static int dissect_lcaf_repl_list(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
  *  Type 11: Security Key Type
  *  Type 12: Source/Dest Key Type
  *  Type 13: Replication List Entry
+ *
  */
 
 static int
@@ -1443,57 +1434,58 @@ dissect_lcaf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
     switch (lcaf_type) {
         case LCAF_NULL:
             break;
-        case LCAF_AFI_LIST: //type=1
+        case LCAF_AFI_LIST:
             offset = dissect_lcaf_afi_list(tvb, pinfo, tree, offset, len);
             break;
-        case LCAF_IID:     //type=2
+        case LCAF_IID:
             offset = dissect_lcaf_iid(tvb, pinfo, tree, offset);
             break;
-        case LCAF_ASN:  //type=3
+        case LCAF_ASN:
             offset = dissect_lcaf_asn(tvb, pinfo, tree, offset);
             break;
-        case LCAF_APP_DATA: //type=4
+        case LCAF_APP_DATA:
             offset=dissect_lcaf_app_data(tvb, pinfo, tree, offset);
             break;
-        case LCAF_GEO:     //type=5
+        case LCAF_GEO:
             offset=dissect_lcaf_geo(tvb, pinfo, tree, offset);
             break;
-        case LCAF_OKEY: //type=6
+        case LCAF_OKEY:
             offset=dissect_lcaf_okey(tvb, tree, offset, len);
             break;
-        case LCAF_NATT:  //type=7
+        case LCAF_NATT:
             offset = dissect_lcaf_natt(tvb, pinfo, tree, offset, len);
             break;
-	case LCAF_NONCE_LOC: //type=8
-	    offset = dissect_lcaf_nonce_loc(tvb,pinfo,tree,offset);
-	    break;
-	case LCAF_MCAST_INFO: //type=9
-	    offset = dissect_lcaf_mcast_info(tvb, pinfo, tree, offset);
-	    break;    
-        case LCAF_ELP:  //type=10
+        case LCAF_NONCE_LOC:
+            offset = dissect_lcaf_nonce_loc(tvb,pinfo,tree,offset);
+            break;
+        case LCAF_MCAST_INFO:
+            offset = dissect_lcaf_mcast_info(tvb, pinfo, tree, offset);
+            break;
+        case LCAF_ELP:
             offset = dissect_lcaf_elp(tvb, pinfo, tree, offset, len);
             break;
-	case LCAF_SEC_KEY://type=11
-	    offset=dissect_lcaf_sec_key(tvb,pinfo,tree,offset);
-	    break;
-	case LCAF_SRC_DST_KEY://type=12
-	    offset=dissect_lcaf_src_dst_key(tvb,pinfo,tree,offset);
-	    break;
-	case LCAF_REPL_LIST://type=13
-	    offset=dissect_lcaf_repl_list(tvb,pinfo,tree,offset,len);
-	    break;
+        case LCAF_SEC_KEY:
+            offset = dissect_lcaf_sec_key(tvb, pinfo, tree, offset);
+            break;
+        case LCAF_SRC_DST_KEY:
+            offset = dissect_lcaf_src_dst_key(tvb, pinfo, tree, offset);
+            break;
+        case LCAF_RLE:
+            offset = dissect_lcaf_repl_list(tvb, pinfo, tree, offset, len);
+            break;
         default:
             if (lcaf_type < 14)
                 expert_add_undecoded_item(tvb, pinfo, tree, offset,
                         len, PI_WARN);
             else
                 expert_add_info_format(pinfo, tree, PI_PROTOCOL, PI_ERROR,
-                        "LCAF type %d is not defined in draft-farinacci-lisp-lcaf-%d",
+                        "LCAF type %d is not defined in draft-ietf-lisp-lcaf-%d",
                         lcaf_type, LCAF_DRAFT_VERSION);
             return offset + len;
     }
     return offset;
 }
+
 
 /*
  * Dissector code for locator records within control packets
@@ -1671,13 +1663,12 @@ dissect_lisp_mapping(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tree,
     proto_tree_add_item(lisp_mapping_tree, hf_lisp_mapping_eid_afi, tvb, offset_rec, 2, ENC_BIG_ENDIAN);
     offset_rec += 2;
 
-
-    /* EID made to support LCAF */
-    if(prefix_afi==AFNUM_LCAF)
-      offset_rec=dissect_lcaf(tvb,pinfo,lisp_mapping_tree,offset_rec);
-    else 
     /* EID */
-    proto_tree_add_string(lisp_mapping_tree, hf_lisp_mapping_eid, tvb, offset_rec, offset - offset_rec, prefix);
+    if (prefix_afi == AFNUM_LCAF)
+        offset_rec = dissect_lcaf(tvb, pinfo, lisp_mapping_tree, offset_rec);
+    else
+        proto_tree_add_string(lisp_mapping_tree, hf_lisp_mapping_eid, tvb,
+                offset_rec, offset - offset_rec, prefix);
 
     /* Locators */
     for(i=0; i < loc_cnt; i++) {
@@ -1826,8 +1817,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
         struct e_in6_addr itr_rloc_v6;
         proto_item *tir;
         proto_tree *lisp_itr_tree;
-	
-	const gchar *prefix;
+        const gchar *itr_rloc_lcaf;
 
         itr_afi = tvb_get_ntohs(tvb, offset);
 
@@ -1852,14 +1842,13 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                         INET6_ADDRLEN, (guint8 *)&itr_rloc_v6);
                 offset += INET6_ADDRLEN + 2;
                 break;
-	    case AFNUM_LCAF:
-		
-		prefix=get_addr_str(tvb,offset+2,itr_afi,&addr_len);
-		tir = proto_tree_add_text(lisp_tree, tvb, offset, 6,
-                        "ITR-RLOC %d: %s (LCAF type)",i+1,prefix);
-		lisp_itr_tree = proto_item_add_subtree(tir, ett_lisp_itr);
-		offset=dissect_lcaf(tvb,pinfo,lisp_itr_tree,offset+2);
-		break;
+            case AFNUM_LCAF:
+                itr_rloc_lcaf = get_addr_str(tvb, offset + 2, itr_afi, &addr_len);
+                tir = proto_tree_add_text(lisp_tree, tvb, offset, 6,
+                        "ITR-RLOC %d: %s", i + 1, itr_rloc_lcaf);
+                lisp_itr_tree = proto_item_add_subtree(tir, ett_lisp_itr);
+                offset = dissect_lcaf(tvb, pinfo, lisp_itr_tree, offset + 2);
+                break;
             default:
                 expert_add_info_format(pinfo, lisp_tree, PI_PROTOCOL, PI_ERROR,
                         "Unexpected ITR-RLOC-AFI (%d), cannot decode", itr_afi);
@@ -1890,8 +1879,7 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
             call_dissector(data_handle, next_tvb, pinfo, lisp_tree);
             return;
         }
-      
-	
+
         tir = proto_tree_add_text(lisp_tree, tvb, offset, 4 + addr_len,
                 "Record %d: %s/%d", i+1, prefix, prefix_mask);
 
@@ -1906,16 +1894,15 @@ dissect_lisp_map_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *lisp_tre
                 prefix_mask);
         proto_tree_add_text(lisp_record_tree, tvb, offset + 2, 2, "Prefix AFI: %d",
                 prefix_afi);
-	
-	offset+=4;
-	
-	// Support for LCAF if a record contains LCAF type
-	if(prefix_afi==AFNUM_LCAF)
-	   offset=dissect_lcaf(tvb,pinfo,lisp_record_tree,offset);
-	else
-	{proto_tree_add_text(lisp_record_tree, tvb, offset + 4, addr_len, "Prefix: %s",
-                prefix);
-        offset += addr_len;}
+        offset+=4;
+
+        if (prefix_afi == AFNUM_LCAF) {
+            offset = dissect_lcaf(tvb, pinfo, lisp_record_tree, offset);
+        } else {
+            proto_tree_add_text(lisp_record_tree, tvb, offset + 4, addr_len,
+                    "Prefix: %s", prefix);
+            offset += addr_len;
+        }
     }
 
     /* If M bit is set, we also have a Map-Reply */
@@ -2775,20 +2762,18 @@ proto_register_lisp(void)
         { &hf_lisp_lcaf_natt_etrport,
             { "ETR UDP Port Number", "lisp.lcaf.natt.etrport",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-	    
-	     /*--r--*/
-        { &hf_lisp_lcaf_asn,   
-            { "Autonomous System Number", "lisp.lcaf.as",
+        { &hf_lisp_lcaf_asn,
+            { "Autonomous System Number", "lisp.lcaf.asn",
             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-	{ &hf_lisp_lcaf_app_data_tos,
+        { &hf_lisp_lcaf_app_data_tos,
             { "IP Tos/ IPv6 Tc /Flow Label", "lisp.lcaf.app.data.tos",
             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-	{ &hf_lisp_lcaf_mcast_srcmsk,
+        { &hf_lisp_lcaf_mcast_srcmsk,
             { "Source Mask Length", "lisp.lcaf.mcast.srcmsk",
             FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_mcast_grpmsk,
             { "Group Mask Length", "lisp.lcaf.mcast.grpmsk",
-            FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }}, 
+            FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_mcast_srcaddr,
             { "Source/Subnet Address", "lisp.lcaf.mcast.srcaddr",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -2802,22 +2787,17 @@ proto_register_lisp(void)
             { "Key Wildcard Fields", "hf.lisp.lcaf.okey.kwldcard",
             FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_okey_key,
-            { "KEY", "hf.lisp.lcaf.okey.key", FT_BYTES, BASE_NONE, NULL, 0x0,
-         "Key", HFILL }} ,
+            { "KEY", "hf.lisp.lcaf.okey.key",
+            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_lisp_lcaf_nonce,
             { "Nonce", "lisp.lcaf.nonce",
             FT_UINT24, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-	 { &hf_lisp_lcaf_sec_key_key,
-            { "Key Material", "hf.lisp.lcaf.sec.key.key", FT_BYTES, BASE_NONE, NULL, 0x0,
-         "Key", HFILL }} ,
-	 { &hf_lisp_lcaf_sec_key_alg,
+        { &hf_lisp_lcaf_sec_key_key,
+            { "Key Material", "hf.lisp.lcaf.sec.key.key",
+            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_lisp_lcaf_sec_key_alg,
             { "Key Algorithm", "lisp.lcaf.sec.key.alg",
             FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }}
-
-
-
-//                                                              /*--r--*/
-	    
     };
 
     /* Setup protocol subtree array */
