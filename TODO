@@ -10,6 +10,7 @@ packet-lisp.c
 * Implement support for LISP-SEC
 * Expand get_addr_str() for AS Number
 * Reduce proto_tree_add_text() occurances
+* Option to set key and validate authentication data
 
 packet-lisp-data.c
 ==================
